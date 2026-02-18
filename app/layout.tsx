@@ -13,8 +13,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <meta name="base:app_id" content="6995a0a325337829d86a541c" />
+      </head>
       <body>{children}</body>
     </html>
   );
 }
-
