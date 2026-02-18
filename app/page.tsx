@@ -456,7 +456,10 @@ export default function HomePage() {
 
         shootCdRef.current -= dt;
         if (shootCdRef.current <= 0) {
-          shootCdRef.current = rapidRef.current > 0 ? 0.16 : 0.28;
+          const levelFireBonus = Math.min(0.12, (levelRef.current - 1) * 0.004);
+          const baseInterval = Math.max(0.16, 0.28 - levelFireBonus);
+          const rapidInterval = Math.max(0.1, baseInterval * 0.58);
+          shootCdRef.current = rapidRef.current > 0 ? rapidInterval : baseInterval;
           let nearest: Enemy | null = null;
           let nearestDist = Infinity;
           for (const e of enemiesRef.current) {
@@ -470,12 +473,14 @@ export default function HomePage() {
             const tx = nearest.x - playerRef.current.x;
             const ty = nearest.y - playerRef.current.y;
             const l = Math.hypot(tx, ty) || 1;
+            const levelSpeedBonus = Math.min(180, (levelRef.current - 1) * 6);
+            const bulletSpeed = 320 + levelSpeedBonus;
             bulletsRef.current.push({
               id: idRef.current++,
               x: playerRef.current.x,
               y: playerRef.current.y,
-              vx: (tx / l) * 320,
-              vy: (ty / l) * 320,
+              vx: (tx / l) * bulletSpeed,
+              vy: (ty / l) * bulletSpeed,
               life: 1.1
             });
           }
