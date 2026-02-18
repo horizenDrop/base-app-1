@@ -584,6 +584,24 @@ export default function HomePage() {
     touchRef.current = { x: 0, y: 0, active: false };
   }, []);
 
+  useEffect(() => {
+    const arena = arenaRef.current;
+    if (!arena) return;
+
+    const blockDefault = (event: Event) => event.preventDefault();
+    arena.addEventListener("contextmenu", blockDefault);
+    arena.addEventListener("selectstart", blockDefault);
+    arena.addEventListener("touchstart", blockDefault, { passive: false });
+    arena.addEventListener("touchmove", blockDefault, { passive: false });
+
+    return () => {
+      arena.removeEventListener("contextmenu", blockDefault);
+      arena.removeEventListener("selectstart", blockDefault);
+      arena.removeEventListener("touchstart", blockDefault);
+      arena.removeEventListener("touchmove", blockDefault);
+    };
+  }, [phase]);
+
   const activeBuffs = [
     hasteLeftMs > 0 ? `Haste ${Math.ceil(hasteLeftMs / 1000)}s` : null,
     rapidLeftMs > 0 ? `Rapid ${Math.ceil(rapidLeftMs / 1000)}s` : null,
@@ -638,6 +656,8 @@ export default function HomePage() {
                 onTouchStart={onArenaTouchStart}
                 onTouchMove={onArenaTouchMove}
                 onTouchEnd={onArenaTouchEnd}
+                onTouchCancel={onArenaTouchEnd}
+                onContextMenu={(e) => e.preventDefault()}
               />
               <div className="player" style={{ left: player.x - PLAYER_RADIUS, top: player.y - PLAYER_RADIUS }} />
               {enemiesView.map((e) => (

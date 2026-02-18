@@ -35,6 +35,13 @@ body {
   padding: 0;
 }
 
+.page.playing,
+.page.playing * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .card {
   width: min(560px, 100%);
   border: 1px solid var(--line);
@@ -149,6 +156,11 @@ h1 {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+.arena,
+.arena * {
+  -webkit-user-drag: none;
 }
 
 .player,
