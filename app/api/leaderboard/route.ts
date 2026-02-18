@@ -6,6 +6,8 @@ type LeaderboardEntry = {
   verifiedBestScore: number;
   lastScore: number;
   totalRuns: number;
+  level: number;
+  levelXp: number;
   updatedAt: number;
 };
 
@@ -75,14 +77,61 @@ function normalizeAddress(value: string) {
   return value.trim().toLowerCase();
 }
 
+function xpForNextLevel(level: number) {
+  return 40 + level * 30 + level * level * 6;
+}
+
+function normalizeEntry(entry: Partial<LeaderboardEntry> & { address: string }): LeaderboardEntry {
+  return {
+    address: normalizeAddress(entry.address),
+    bestScore: Math.max(0, Math.floor(entry.bestScore ?? 0)),
+    verifiedBestScore: Math.max(0, Math.floor(entry.verifiedBestScore ?? 0)),
+    lastScore: Math.max(0, Math.floor(entry.lastScore ?? 0)),
+    totalRuns: Math.max(0, Math.floor(entry.totalRuns ?? 0)),
+    level: Math.max(1, Math.floor(entry.level ?? 1)),
+    levelXp: Math.max(0, Math.floor(entry.levelXp ?? 0)),
+    updatedAt: Math.max(0, Math.floor(entry.updatedAt ?? Date.now()))
+  };
+}
+
+function applyXpProgress(level: number, levelXp: number, xpGained: number) {
+  let currentLevel = Math.max(1, level);
+  let currentLevelXp = Math.max(0, levelXp + Math.max(0, xpGained));
+  while (currentLevelXp >= xpForNextLevel(currentLevel)) {
+    currentLevelXp -= xpForNextLevel(currentLevel);
+    currentLevel += 1;
+  }
+  return { level: currentLevel, levelXp: currentLevelXp };
+}
+
+function profileFromEntry(entry: LeaderboardEntry) {
+  const nextXp = xpForNextLevel(entry.level);
+  const damage = Number((1 + (entry.level - 1) * 0.15).toFixed(2));
+  const maxHp = 3 + Math.floor((entry.level - 1) / 2);
+  return {
+    ...entry,
+    nextLevelXp: nextXp,
+    damage,
+    maxHp
+  };
+}
+
 export async function GET(request: NextRequest) {
   const address = request.nextUrl.searchParams.get("address");
   const entries = await readEntries();
-  store.pragmaLeaderboard = new Map(entries.map((entry) => [entry.address, entry]));
+  const normalizedEntries = entries.map((entry) => normalizeEntry(entry));
+  store.pragmaLeaderboard = new Map(normalizedEntries.map((entry) => [entry.address, entry]));
   const leaderboard = getSorted().slice(0, 100);
-  if (!address) return NextResponse.json({ leaderboard });
+  if (!address) {
+    return NextResponse.json({
+      leaderboard: leaderboard.map((entry) => profileFromEntry(entry))
+    });
+  }
   const profile = store.pragmaLeaderboard!.get(normalizeAddress(address)) ?? null;
-  return NextResponse.json({ leaderboard, profile });
+  return NextResponse.json({
+    leaderboard: leaderboard.map((entry) => profileFromEntry(entry)),
+    profile: profile ? profileFromEntry(profile) : null
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -91,6 +140,7 @@ export async function POST(request: NextRequest) {
       address?: string;
       score?: number;
       verified?: boolean;
+      xpGained?: number;
     };
     if (!body.address || typeof body.score !== "number") {
       return NextResponse.json({ error: "address and score are required" }, { status: 400 });
@@ -101,9 +151,12 @@ export async function POST(request: NextRequest) {
     }
     const score = Math.max(0, Math.floor(body.score));
     const verified = body.verified === true;
+    const xpGained = Math.max(0, Math.floor(body.xpGained ?? 0));
     const entries = await readEntries();
-    const map = new Map(entries.map((entry) => [entry.address, entry]));
+    const normalizedEntries = entries.map((entry) => normalizeEntry(entry));
+    const map = new Map(normalizedEntries.map((entry) => [entry.address, entry]));
     const prev = map.get(address);
+    const xpProgress = applyXpProgress(prev?.level ?? 1, prev?.levelXp ?? 0, xpGained);
     const updated: LeaderboardEntry = {
       address,
       bestScore: Math.max(prev?.bestScore ?? 0, score),
@@ -112,6 +165,8 @@ export async function POST(request: NextRequest) {
         : (prev?.verifiedBestScore ?? 0),
       lastScore: score,
       totalRuns: (prev?.totalRuns ?? 0) + 1,
+      level: xpProgress.level,
+      levelXp: xpProgress.levelXp,
       updatedAt: Date.now()
     };
     map.set(address, updated);
@@ -119,8 +174,10 @@ export async function POST(request: NextRequest) {
     await writeEntries(updatedEntries);
     store.pragmaLeaderboard = map;
     return NextResponse.json({
-      profile: updated,
-      leaderboard: getSorted().slice(0, 100)
+      profile: profileFromEntry(updated),
+      leaderboard: getSorted()
+        .slice(0, 100)
+        .map((entry) => profileFromEntry(entry))
     });
   } catch {
     return NextResponse.json({ error: "invalid request body" }, { status: 400 });

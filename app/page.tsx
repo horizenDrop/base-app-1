@@ -9,7 +9,15 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;
 };
 
-type Enemy = { id: number; x: number; y: number; r: number; speed: number; hp: number; bladeCd: number };
+type Enemy = {
+  id: number;
+  x: number;
+  y: number;
+  r: number;
+  speed: number;
+  hp: number;
+  bladeCd: number;
+};
 type Bullet = { id: number; x: number; y: number; vx: number; vy: number; life: number };
 type BuffType = "haste" | "rapid" | "shield" | "blades";
 type BuffPickup = { id: number; x: number; y: number; type: BuffType; life: number };
@@ -21,6 +29,11 @@ type LeaderboardEntry = {
   verifiedBestScore: number;
   lastScore: number;
   totalRuns: number;
+  level: number;
+  levelXp: number;
+  nextLevelXp: number;
+  damage: number;
+  maxHp: number;
   updatedAt: number;
 };
 
@@ -61,6 +74,18 @@ function randomBuffType(): BuffType {
   return "blades";
 }
 
+function xpForNextLevel(level: number) {
+  return 40 + level * 30 + level * level * 6;
+}
+
+function calcDamage(level: number) {
+  return Number((1 + (level - 1) * 0.15).toFixed(2));
+}
+
+function calcMaxHp(level: number) {
+  return 3 + Math.floor((level - 1) / 2);
+}
+
 export default function HomePage() {
   const [phase, setPhase] = useState<Phase>("menu");
   const [account, setAccount] = useState<Address | null>(null);
@@ -77,10 +102,14 @@ export default function HomePage() {
   const [lastRunScore, setLastRunScore] = useState(0);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
-  const [player, setPlayer] = useState({
-    x: DEFAULT_ARENA_WIDTH / 2,
-    y: DEFAULT_ARENA_HEIGHT / 2
-  });
+  const [level, setLevel] = useState(1);
+  const [levelXp, setLevelXp] = useState(0);
+  const [nextLevelXp, setNextLevelXp] = useState(xpForNextLevel(1));
+  const [damage, setDamage] = useState(calcDamage(1));
+  const [maxHp, setMaxHp] = useState(calcMaxHp(1));
+  const [currentHp, setCurrentHp] = useState(calcMaxHp(1));
+
+  const [player, setPlayer] = useState({ x: DEFAULT_ARENA_WIDTH / 2, y: DEFAULT_ARENA_HEIGHT / 2 });
   const [enemiesView, setEnemiesView] = useState<Enemy[]>([]);
   const [bulletsView, setBulletsView] = useState<Bullet[]>([]);
   const [buffsView, setBuffsView] = useState<BuffPickup[]>([]);
@@ -115,13 +144,17 @@ export default function HomePage() {
   const rapidRef = useRef(0);
   const bladesRef = useRef(0);
   const shieldRef = useRef(0);
+  const levelRef = useRef(1);
+  const levelXpRef = useRef(0);
+  const damageRef = useRef(calcDamage(1));
+  const maxHpRef = useRef(calcMaxHp(1));
+  const currentHpRef = useRef(calcMaxHp(1));
+  const runXpGainedRef = useRef(0);
 
   const liveScore = Math.floor(timeMs / 1000) + kills * 6 + (wave - 1) * 10;
 
   const loadLeaderboard = useCallback(async (address?: string) => {
-    const url = address
-      ? `/api/leaderboard?address=${encodeURIComponent(address)}`
-      : "/api/leaderboard";
+    const url = address ? `/api/leaderboard?address=${encodeURIComponent(address)}` : "/api/leaderboard";
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as {
@@ -133,6 +166,19 @@ export default function HomePage() {
       setBestRun(json.profile.bestScore);
       setBestVerifiedRun(json.profile.verifiedBestScore ?? 0);
       setLastRunScore(json.profile.lastScore);
+      const lvl = Math.max(1, json.profile.level ?? 1);
+      const xp = Math.max(0, json.profile.levelXp ?? 0);
+      levelRef.current = lvl;
+      levelXpRef.current = xp;
+      damageRef.current = json.profile.damage ?? calcDamage(lvl);
+      maxHpRef.current = json.profile.maxHp ?? calcMaxHp(lvl);
+      currentHpRef.current = maxHpRef.current;
+      setLevel(lvl);
+      setLevelXp(xp);
+      setNextLevelXp(json.profile.nextLevelXp ?? xpForNextLevel(lvl));
+      setDamage(damageRef.current);
+      setMaxHp(maxHpRef.current);
+      setCurrentHp(currentHpRef.current);
     }
   }, []);
 
@@ -143,27 +189,56 @@ export default function HomePage() {
     setShieldCharges(shieldRef.current);
   }, []);
 
-  const submitLeaderboardRun = useCallback(
-    async (addr: string, score: number, verified = false) => {
-      const res = await fetch("/api/leaderboard", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address: addr, score, verified })
-      });
-      if (!res.ok) return;
-      const json = (await res.json()) as {
-        leaderboard: LeaderboardEntry[];
-        profile: LeaderboardEntry;
-      };
-      setLeaderboard(json.leaderboard ?? []);
-      if (json.profile) {
-        setBestRun(json.profile.bestScore);
-        setBestVerifiedRun(json.profile.verifiedBestScore ?? 0);
-        setLastRunScore(json.profile.lastScore);
-      }
-    },
-    []
-  );
+  const submitLeaderboardRun = useCallback(async (addr: string, score: number, verified = false, xpGained = 0) => {
+    const res = await fetch("/api/leaderboard", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: addr, score, verified, xpGained })
+    });
+    if (!res.ok) return;
+    const json = (await res.json()) as { leaderboard: LeaderboardEntry[]; profile: LeaderboardEntry };
+    setLeaderboard(json.leaderboard ?? []);
+    if (json.profile) {
+      setBestRun(json.profile.bestScore);
+      setBestVerifiedRun(json.profile.verifiedBestScore ?? 0);
+      setLastRunScore(json.profile.lastScore);
+      const lvl = Math.max(1, json.profile.level ?? 1);
+      const xp = Math.max(0, json.profile.levelXp ?? 0);
+      levelRef.current = lvl;
+      levelXpRef.current = xp;
+      damageRef.current = json.profile.damage ?? calcDamage(lvl);
+      maxHpRef.current = json.profile.maxHp ?? calcMaxHp(lvl);
+      setLevel(lvl);
+      setLevelXp(xp);
+      setNextLevelXp(json.profile.nextLevelXp ?? xpForNextLevel(lvl));
+      setDamage(damageRef.current);
+      setMaxHp(maxHpRef.current);
+    }
+  }, []);
+
+  const gainXp = useCallback((amount: number) => {
+    if (amount <= 0) return;
+    runXpGainedRef.current += amount;
+    let lvl = levelRef.current;
+    let xp = levelXpRef.current + amount;
+    while (xp >= xpForNextLevel(lvl)) {
+      xp -= xpForNextLevel(lvl);
+      lvl += 1;
+    }
+    levelRef.current = lvl;
+    levelXpRef.current = xp;
+    const dmg = calcDamage(lvl);
+    const hp = calcMaxHp(lvl);
+    damageRef.current = dmg;
+    maxHpRef.current = hp;
+    currentHpRef.current = Math.min(currentHpRef.current + 1, hp);
+    setLevel(lvl);
+    setLevelXp(xp);
+    setNextLevelXp(xpForNextLevel(lvl));
+    setDamage(dmg);
+    setMaxHp(hp);
+    setCurrentHp(currentHpRef.current);
+  }, []);
 
   const resetGame = useCallback(() => {
     runningRef.current = false;
@@ -183,6 +258,8 @@ export default function HomePage() {
     rapidRef.current = 0;
     bladesRef.current = 0;
     shieldRef.current = 0;
+    runXpGainedRef.current = 0;
+    currentHpRef.current = maxHpRef.current;
     setPlayer(playerRef.current);
     setEnemiesView([]);
     setBulletsView([]);
@@ -191,6 +268,7 @@ export default function HomePage() {
     setKills(0);
     setTimeMs(0);
     setWave(1);
+    setCurrentHp(currentHpRef.current);
     syncBuffView();
   }, [syncBuffView]);
 
@@ -207,7 +285,7 @@ export default function HomePage() {
     setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
     setStatus("Run failed: swarm caught you.");
-    if (account) void submitLeaderboardRun(account, finalScore, false);
+    if (account) void submitLeaderboardRun(account, finalScore, false, runXpGainedRef.current);
   }, [account, submitLeaderboardRun]);
 
   const startGame = useCallback(() => {
@@ -226,9 +304,7 @@ export default function HomePage() {
       setStatus("No wallet provider found. Open inside Base App.");
       return;
     }
-    const accounts = (await provider.request({
-      method: "eth_requestAccounts"
-    })) as Address[];
+    const accounts = (await provider.request({ method: "eth_requestAccounts" })) as Address[];
     if (!accounts.length) {
       setStatus("Wallet connect failed.");
       return;
@@ -255,9 +331,7 @@ export default function HomePage() {
         return;
       }
       try {
-        const accounts = (await provider.request({
-          method: "eth_accounts"
-        })) as Address[];
+        const accounts = (await provider.request({ method: "eth_accounts" })) as Address[];
         if (accounts.length) {
           const addr = accounts[0].toLowerCase() as Address;
           setAccount(addr);
@@ -439,12 +513,13 @@ export default function HomePage() {
 
         const removeEnemy = new Set<number>();
         const removeBullet = new Set<number>();
+        const killsBefore = killRef.current;
 
         for (const b of bulletsRef.current) {
           for (const e of enemiesRef.current) {
             if (removeEnemy.has(e.id)) continue;
             if (dist(b.x, b.y, e.x, e.y) < BULLET_RADIUS + e.r) {
-              e.hp -= 1;
+              e.hp -= damageRef.current;
               removeBullet.add(b.id);
               if (e.hp <= 0) {
                 removeEnemy.add(e.id);
@@ -468,7 +543,7 @@ export default function HomePage() {
             for (const e of enemiesRef.current) {
               if (e.bladeCd > 0) continue;
               if (dist(sx, sy, e.x, e.y) < bladeHitRadius + e.r) {
-                e.hp -= 1;
+                e.hp -= damageRef.current * 0.8;
                 e.bladeCd = 0.18;
                 if (e.hp <= 0) {
                   removeEnemy.add(e.id);
@@ -486,6 +561,8 @@ export default function HomePage() {
           enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
           bulletsRef.current = bulletsRef.current.filter((b) => !removeBullet.has(b.id));
           setKills(killRef.current);
+          const killedNow = Math.max(0, killRef.current - killsBefore);
+          if (killedNow > 0) gainXp(killedNow * (8 + currentWave));
         }
 
         for (const buff of buffsRef.current) {
@@ -515,7 +592,11 @@ export default function HomePage() {
               enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
               syncBuffView();
             } else {
-              endRun();
+              currentHpRef.current -= 1;
+              setCurrentHp(currentHpRef.current);
+              graceRef.current = 0.5;
+              enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
+              if (currentHpRef.current <= 0) endRun();
             }
           }
         }
@@ -529,7 +610,7 @@ export default function HomePage() {
     };
     const id = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(id);
-  }, [account, endRun, syncBuffView]);
+  }, [account, endRun, gainXp, syncBuffView]);
 
   const submitOnchain = useCallback(async () => {
     if (!provider || !account) {
@@ -540,33 +621,20 @@ export default function HomePage() {
       setStatus("Play at least one run.");
       return;
     }
-
     setSubmitting(true);
     try {
-      await provider.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: CHAIN_ID_HEX }]
-      });
-
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] });
       const scoreWeiHex = `0x${BigInt(Math.max(1, lastRunScore)).toString(16)}`;
       let txHash: string | null = null;
       let primaryError = "";
-
       try {
         txHash = (await provider.request({
           method: "eth_sendTransaction",
-          params: [
-            {
-              from: account,
-              to: account,
-              value: scoreWeiHex
-            }
-          ]
+          params: [{ from: account, to: account, value: scoreWeiHex }]
         })) as string;
       } catch (error) {
         primaryError = error instanceof Error ? error.message : "eth_sendTransaction failed";
       }
-
       if (!txHash) {
         try {
           const sendResult = await provider.request({
@@ -581,9 +649,7 @@ export default function HomePage() {
               }
             ]
           });
-          txHash =
-            (typeof sendResult === "string" ? null : sendResult?.transactionHash) ??
-            null;
+          txHash = (typeof sendResult === "string" ? null : sendResult?.transactionHash) ?? null;
         } catch (error) {
           const fallbackError = error instanceof Error ? error.message : "wallet_sendCalls failed";
           throw new Error(
@@ -591,10 +657,8 @@ export default function HomePage() {
           );
         }
       }
-
       if (txHash) setLastTxHash(txHash);
-
-      await submitLeaderboardRun(account, lastRunScore, true);
+      await submitLeaderboardRun(account, lastRunScore, true, 0);
       setStatus("Onchain score submitted. Gas paid by wallet.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -621,23 +685,17 @@ export default function HomePage() {
           };
   }, []);
 
-  const onArenaTouchStart = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const t = e.touches[0];
-      if (t) updateTouchMove(t.clientX, t.clientY);
-    },
-    [updateTouchMove]
-  );
+  const onArenaTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    if (t) updateTouchMove(t.clientX, t.clientY);
+  }, [updateTouchMove]);
 
-  const onArenaTouchMove = useCallback(
-    (e: TouchEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const t = e.touches[0];
-      if (t) updateTouchMove(t.clientX, t.clientY);
-    },
-    [updateTouchMove]
-  );
+  const onArenaTouchMove = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    if (t) updateTouchMove(t.clientX, t.clientY);
+  }, [updateTouchMove]);
 
   const onArenaTouchEnd = useCallback(() => {
     touchRef.current = { x: 0, y: 0, active: false };
@@ -678,14 +736,16 @@ export default function HomePage() {
           <>
             {!walletChecked || !account ? (
               <div className="menu-actions">
-                <button className="primary big" onClick={connect}>
-                  Connect Wallet To Play
-                </button>
+                <button className="primary big" onClick={connect}>Connect Wallet To Play</button>
               </div>
             ) : (
               <>
                 <p className="muted">Wallet: {shortAddress(account)}. Progress is tied to this address.</p>
                 <div className="menu-stats">
+                  <div className="menu-stat"><span>Level</span><strong>{level}</strong></div>
+                  <div className="menu-stat"><span>XP</span><strong>{levelXp}/{nextLevelXp}</strong></div>
+                  <div className="menu-stat"><span>Damage</span><strong>{damage.toFixed(2)}</strong></div>
+                  <div className="menu-stat"><span>HP</span><strong>{maxHp}</strong></div>
                   <div className="menu-stat"><span>Best</span><strong>{bestRun}</strong></div>
                   <div className="menu-stat"><span>Verified</span><strong>{bestVerifiedRun}</strong></div>
                   <div className="menu-stat"><span>Last</span><strong>{lastRunScore}</strong></div>
@@ -710,7 +770,7 @@ export default function HomePage() {
                     key={`${entry.address}-${entry.updatedAt}`}
                     className={`lb-row ${account?.toLowerCase() === entry.address.toLowerCase() ? "me" : ""}`}
                   >
-                    <span>{idx + 1}. {shortAddress(entry.address)}</span>
+                    <span>{idx + 1}. {shortAddress(entry.address)} Lv.{entry.level}</span>
                     <strong className="lb-score">
                       <b className="verified">{entry.verifiedBestScore}</b>
                       <i>{entry.bestScore}</i>
@@ -727,6 +787,7 @@ export default function HomePage() {
             <div className="hud-live">
               <span>{(timeMs / 1000).toFixed(1)}s</span>
               <span>Wave {wave}</span>
+              <span>HP {currentHp}/{maxHp}</span>
               <span>Kills {kills}</span>
               <span>Score {liveScore}</span>
             </div>
