@@ -9,11 +9,12 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;
 };
 
-type Enemy = { id: number; x: number; y: number; r: number; speed: number; hp: number };
+type Enemy = { id: number; x: number; y: number; r: number; speed: number; hp: number; bladeCd: number };
 type Bullet = { id: number; x: number; y: number; vx: number; vy: number; life: number };
-type BuffType = "haste" | "rapid" | "shield";
+type BuffType = "haste" | "rapid" | "shield" | "blades";
 type BuffPickup = { id: number; x: number; y: number; type: BuffType; life: number };
 type Phase = "menu" | "playing" | "gameover";
+type SwordView = { id: number; x: number; y: number };
 
 const CHAIN_ID_HEX = "0x2105";
 const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
@@ -26,6 +27,7 @@ const BULLET_RADIUS = 3;
 const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 130;
 const BUFF_MAGNET_SPEED = 240;
+const WAVE_MS = 10000;
 
 function toAbsoluteUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -52,10 +54,11 @@ function randomSpawnPoint(width: number, height: number) {
 }
 
 function randomBuffType(): BuffType {
-  const v = Math.floor(Math.random() * 3);
+  const v = Math.floor(Math.random() * 4);
   if (v === 0) return "haste";
   if (v === 1) return "rapid";
-  return "shield";
+  if (v === 2) return "shield";
+  return "blades";
 }
 
 async function pollBatchStatus(provider: EthereumProvider, batchId: string) {
@@ -101,8 +104,10 @@ export default function HomePage() {
   const [enemiesView, setEnemiesView] = useState<Enemy[]>([]);
   const [bulletsView, setBulletsView] = useState<Bullet[]>([]);
   const [buffsView, setBuffsView] = useState<BuffPickup[]>([]);
+  const [swordsView, setSwordsView] = useState<SwordView[]>([]);
   const [hasteLeftMs, setHasteLeftMs] = useState(0);
   const [rapidLeftMs, setRapidLeftMs] = useState(0);
+  const [bladesLeftMs, setBladesLeftMs] = useState(0);
   const [shieldCharges, setShieldCharges] = useState(0);
 
   const provider = useMemo(() => {
@@ -129,12 +134,14 @@ export default function HomePage() {
   const hasteRef = useRef(0);
   const rapidRef = useRef(0);
   const shieldRef = useRef(0);
+  const bladesRef = useRef(0);
 
   const liveScore = Math.floor(timeMs / 1000) + kills * 6 + (wave - 1) * 10;
 
   const syncBuffView = useCallback(() => {
     setHasteLeftMs(Math.max(0, Math.floor(hasteRef.current * 1000)));
     setRapidLeftMs(Math.max(0, Math.floor(rapidRef.current * 1000)));
+    setBladesLeftMs(Math.max(0, Math.floor(bladesRef.current * 1000)));
     setShieldCharges(shieldRef.current);
   }, []);
 
@@ -155,10 +162,12 @@ export default function HomePage() {
     hasteRef.current = 0;
     rapidRef.current = 0;
     shieldRef.current = 0;
+    bladesRef.current = 0;
     setPlayer(playerRef.current);
     setEnemiesView([]);
     setBulletsView([]);
     setBuffsView([]);
+    setSwordsView([]);
     setKills(0);
     setTimeMs(0);
     setWave(1);
@@ -169,7 +178,7 @@ export default function HomePage() {
     runningRef.current = false;
     const finalTime = Math.floor(timeRef.current);
     const finalKills = killRef.current;
-    const finalWave = Math.floor(finalTime / 15000) + 1;
+    const finalWave = Math.max(1, Math.ceil(finalTime / WAVE_MS));
     const finalScore = Math.floor(finalTime / 1000) + finalKills * 6 + (finalWave - 1) * 10;
     setTimeMs(finalTime);
     setKills(finalKills);
@@ -237,12 +246,13 @@ export default function HomePage() {
         const arenaH = arenaSizeRef.current.h;
 
         timeRef.current += dt * 1000;
-        const currentWave = Math.floor(timeRef.current / 15000) + 1;
+        const currentWave = Math.max(1, Math.ceil(timeRef.current / WAVE_MS));
         setWave(currentWave);
         setTimeMs(Math.floor(timeRef.current));
 
         hasteRef.current = Math.max(0, hasteRef.current - dt);
         rapidRef.current = Math.max(0, rapidRef.current - dt);
+        bladesRef.current = Math.max(0, bladesRef.current - dt);
         syncBuffView();
 
         const touch = touchRef.current;
@@ -276,7 +286,8 @@ export default function HomePage() {
               y: p.y,
               r: elite ? ENEMY_RADIUS + 3 : ENEMY_RADIUS,
               speed: 28 + currentWave * 4 + Math.random() * 20,
-              hp: elite ? 2 : 1
+              hp: elite ? 2 : 1,
+              bladeCd: 0
             });
           }
         }
@@ -321,6 +332,7 @@ export default function HomePage() {
         }
 
         for (const e of enemiesRef.current) {
+          e.bladeCd = Math.max(0, e.bladeCd - dt);
           const tx = playerRef.current.x - e.x;
           const ty = playerRef.current.y - e.y;
           const l = Math.hypot(tx, ty) || 1;
@@ -371,11 +383,44 @@ export default function HomePage() {
           setKills(killRef.current);
         }
 
+        if (bladesRef.current > 0) {
+          const bladesCount = 3;
+          const bladeRadius = 38;
+          const bladeHitRadius = 11;
+          const angleBase = timeRef.current * 0.012;
+          const swords: SwordView[] = [];
+          for (let i = 0; i < bladesCount; i += 1) {
+            const angle = angleBase + (Math.PI * 2 * i) / bladesCount;
+            const sx = playerRef.current.x + Math.cos(angle) * bladeRadius;
+            const sy = playerRef.current.y + Math.sin(angle) * bladeRadius;
+            swords.push({ id: i, x: sx, y: sy });
+            for (const e of enemiesRef.current) {
+              if (e.bladeCd > 0) continue;
+              if (dist(sx, sy, e.x, e.y) < bladeHitRadius + e.r) {
+                e.hp -= 1;
+                e.bladeCd = 0.18;
+                if (e.hp <= 0) {
+                  removeEnemy.add(e.id);
+                  killRef.current += 1;
+                }
+              }
+            }
+          }
+          setSwordsView(swords);
+          if (removeEnemy.size > 0) {
+            enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
+            setKills(killRef.current);
+          }
+        } else {
+          setSwordsView([]);
+        }
+
         for (const buff of buffsRef.current) {
           if (dist(buff.x, buff.y, playerRef.current.x, playerRef.current.y) < BUFF_RADIUS + PLAYER_RADIUS) {
             if (buff.type === "haste") hasteRef.current = 8;
             if (buff.type === "rapid") rapidRef.current = 8;
             if (buff.type === "shield") shieldRef.current += 1;
+            if (buff.type === "blades") bladesRef.current = 10;
             buffsRef.current = buffsRef.current.filter((v) => v.id !== buff.id);
             syncBuffView();
           }
@@ -542,6 +587,7 @@ export default function HomePage() {
   const activeBuffs = [
     hasteLeftMs > 0 ? `Haste ${Math.ceil(hasteLeftMs / 1000)}s` : null,
     rapidLeftMs > 0 ? `Rapid ${Math.ceil(rapidLeftMs / 1000)}s` : null,
+    bladesLeftMs > 0 ? `Blades ${Math.ceil(bladesLeftMs / 1000)}s` : null,
     shieldCharges > 0 ? `Shield x${shieldCharges}` : null
   ].filter(Boolean) as string[];
 
@@ -606,6 +652,13 @@ export default function HomePage() {
                   key={b.id}
                   className="bullet"
                   style={{ left: b.x - BULLET_RADIUS, top: b.y - BULLET_RADIUS, width: BULLET_RADIUS * 2, height: BULLET_RADIUS * 2 }}
+                />
+              ))}
+              {swordsView.map((s) => (
+                <div
+                  key={s.id}
+                  className="sword"
+                  style={{ left: s.x - 5, top: s.y - 14 }}
                 />
               ))}
               {buffsView.map((b) => (

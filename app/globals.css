@@ -154,7 +154,8 @@ h1 {
 .player,
 .enemy,
 .bullet,
-.buff {
+.buff,
+.sword {
   position: absolute;
   transform: translateZ(0);
   pointer-events: none;
@@ -186,6 +187,17 @@ h1 {
   z-index: 13;
 }
 
+.sword {
+  width: 10px;
+  height: 28px;
+  z-index: 13;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ffffff, #8d8d8d);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.65);
+  transform-origin: center center;
+  transform: rotate(25deg);
+}
+
 .buff {
   border-radius: 50%;
   z-index: 10;
@@ -208,6 +220,18 @@ h1 {
   background: #fff;
   border: 3px solid #fff;
   box-shadow: 0 0 0 3px #000 inset, 0 0 20px rgba(255, 255, 255, 0.7);
+}
+
+.buff.blades {
+  background: repeating-linear-gradient(
+    45deg,
+    #fff,
+    #fff 3px,
+    #000 3px,
+    #000 6px
+  );
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #111 inset, 0 0 20px rgba(255, 255, 255, 0.8);
 }
 
 .buff::after {
