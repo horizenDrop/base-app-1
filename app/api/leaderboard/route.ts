@@ -13,10 +13,12 @@ type LeaderboardEntry = {
 
 const KV_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_URL = process.env.REDIS_URL;
 const KV_KEY = "pragma:leaderboard:v1";
 
 const store = globalThis as unknown as {
   pragmaLeaderboard?: Map<string, LeaderboardEntry>;
+  pragmaRedisClient?: any;
 };
 
 if (!store.pragmaLeaderboard) {
@@ -41,6 +43,17 @@ async function kvCommand(command: unknown[]) {
   return json.result ?? null;
 }
 
+async function getRedisClient() {
+  if (!REDIS_URL) return null;
+  if (store.pragmaRedisClient) return store.pragmaRedisClient;
+  const { createClient } = await import("redis");
+  const client = createClient({ url: REDIS_URL });
+  client.on("error", () => null);
+  await client.connect();
+  store.pragmaRedisClient = client;
+  return client;
+}
+
 async function readEntries() {
   if (KV_URL && KV_TOKEN) {
     const result = await kvCommand(["GET", KV_KEY]);
@@ -50,12 +63,26 @@ async function readEntries() {
     }
     return [];
   }
+  if (REDIS_URL) {
+    const client = await getRedisClient();
+    if (!client) return [];
+    const raw = await client.get(KV_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LeaderboardEntry[];
+    return parsed;
+  }
   return [...store.pragmaLeaderboard!.values()];
 }
 
 async function writeEntries(entries: LeaderboardEntry[]) {
   if (KV_URL && KV_TOKEN) {
     await kvCommand(["SET", KV_KEY, JSON.stringify(entries)]);
+    return;
+  }
+  if (REDIS_URL) {
+    const client = await getRedisClient();
+    if (!client) return;
+    await client.set(KV_KEY, JSON.stringify(entries));
     return;
   }
   store.pragmaLeaderboard = new Map(entries.map((entry) => [entry.address, entry]));
