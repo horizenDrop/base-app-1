@@ -683,17 +683,30 @@ export default function HomePage() {
       `Pragma run results\\n` +
       `Level: ${level} | Score: ${lastRunScore} | Verified: ${bestVerifiedRun}\\n\\n` +
       `join in the game ${GAME_LINK} to show me your skill`;
+    const composeUrl =
+      `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
+      `&embeds[]=${encodeURIComponent(imageUrl)}` +
+      `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
     try {
-      await sdk.actions.composeCast({
-        text,
-        embeds: [imageUrl, GAME_LINK]
-      });
+      await Promise.race([
+        sdk.actions.composeCast({
+          text,
+          embeds: [imageUrl, GAME_LINK]
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("composeCast timeout")), 1400)
+        )
+      ]);
     } catch {
-      const composeUrl =
-        `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
-        `&embeds[]=${encodeURIComponent(imageUrl)}` +
-        `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
-      window.location.href = composeUrl;
+      try {
+        await sdk.actions.openUrl(composeUrl);
+      } catch {
+        try {
+          window.location.href = composeUrl;
+        } catch {
+          window.open(composeUrl, "_blank");
+        }
+      }
     }
   }, [bestVerifiedRun, lastRunScore, level]);
 
