@@ -681,31 +681,62 @@ export default function HomePage() {
       await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] });
       const scoreWeiHex = `0x${BigInt(Math.max(1, lastRunScore)).toString(16)}`;
       let txHash: string | null = null;
+      let sentViaSendCalls = false;
       let primaryError = "";
       try {
-        const sendResult = await provider.request({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "2.0.0",
-              chainId: CHAIN_ID_HEX,
-              from: account,
-              atomicRequired: false,
-              calls: [{ to: account, value: scoreWeiHex }],
-              capabilities: {
-                dataSuffix: {
-                  value: DATA_SUFFIX,
-                  optional: true
+        const baseCall = {
+          version: "2.0.0",
+          chainId: CHAIN_ID_HEX,
+          from: account,
+          atomicRequired: false,
+          calls: [{ to: account, value: scoreWeiHex }]
+        };
+        let sendResult: any = null;
+        try {
+          sendResult = await provider.request({
+            method: "wallet_sendCalls",
+            params: [
+              {
+                ...baseCall,
+                capabilities: {
+                  dataSuffix: {
+                    value: DATA_SUFFIX,
+                    optional: true
+                  }
                 }
               }
-            }
-          ]
-        });
-        txHash = (typeof sendResult === "string" ? null : sendResult?.transactionHash) ?? null;
+            ]
+          });
+        } catch {
+          try {
+            sendResult = await provider.request({
+              method: "wallet_sendCalls",
+              params: [
+                {
+                  ...baseCall,
+                  capabilities: {
+                    dataSuffix: DATA_SUFFIX
+                  }
+                }
+              ]
+            });
+          } catch {
+            sendResult = await provider.request({
+              method: "wallet_sendCalls",
+              params: [baseCall]
+            });
+          }
+        }
+        if (typeof sendResult === "string") {
+          sentViaSendCalls = true;
+        } else if (sendResult?.transactionHash) {
+          txHash = sendResult.transactionHash;
+          sentViaSendCalls = true;
+        }
       } catch (error) {
         primaryError = error instanceof Error ? error.message : "wallet_sendCalls failed";
       }
-      if (!txHash) {
+      if (!txHash && !sentViaSendCalls) {
         try {
           txHash = (await provider.request({
             method: "eth_sendTransaction",
