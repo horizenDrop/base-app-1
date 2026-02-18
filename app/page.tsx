@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import sdk from "@farcaster/miniapp-sdk";
-import { Attribution } from "ox/erc8021";
 import { Address } from "viem";
 
 type EthereumProvider = {
@@ -41,7 +40,7 @@ type LeaderboardEntry = {
 const CHAIN_ID_HEX = "0x2105";
 const WALLET_KEY = "pragma_wallet";
 const BUILDER_CODE = "bc_oub26f3r";
-const DATA_SUFFIX = Attribution.toDataSuffix({ codes: [BUILDER_CODE] });
+const DATA_SUFFIX = "0x62635f6f756232366633720b0080218021802180218021802180218021";
 
 const DEFAULT_ARENA_WIDTH = 320;
 const DEFAULT_ARENA_HEIGHT = 440;
