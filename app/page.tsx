@@ -49,11 +49,13 @@ const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
 const WAVE_MS = 4000;
-const BUFF_DROP_CHANCE = 0.08;
+const BUFF_DROP_CHANCE = 0.05;
+const BLADES_DROP_COOLDOWN_SECONDS = 15;
 const MAX_SHIELD_CHARGES = 3;
 const MAX_HASTE_SECONDS = 8;
 const MAX_RAPID_SECONDS = 8;
 const MAX_BLADES_SECONDS = 7;
+const BLADE_MAX_DAMAGE = 0.6;
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -77,6 +79,13 @@ function randomBuffType(): BuffType {
   if (v === 1) return "rapid";
   if (v === 2) return "shield";
   return "blades";
+}
+
+function randomNonBladeBuffType(): BuffType {
+  const v = Math.floor(Math.random() * 3);
+  if (v === 0) return "haste";
+  if (v === 1) return "rapid";
+  return "shield";
 }
 
 function xpForNextLevel(level: number) {
@@ -146,6 +155,7 @@ export default function HomePage() {
   const hasteRef = useRef(0);
   const rapidRef = useRef(0);
   const bladesRef = useRef(0);
+  const bladesDropCdRef = useRef(0);
   const shieldRef = useRef(0);
   const levelRef = useRef(1);
   const levelXpRef = useRef(0);
@@ -261,6 +271,7 @@ export default function HomePage() {
     hasteRef.current = 0;
     rapidRef.current = 0;
     bladesRef.current = 0;
+    bladesDropCdRef.current = 0;
     shieldRef.current = 0;
     runXpGainedRef.current = 0;
     currentHpRef.current = maxHpRef.current;
@@ -402,7 +413,16 @@ export default function HomePage() {
         hasteRef.current = Math.max(0, hasteRef.current - dt);
         rapidRef.current = Math.max(0, rapidRef.current - dt);
         bladesRef.current = Math.max(0, bladesRef.current - dt);
+        bladesDropCdRef.current = Math.max(0, bladesDropCdRef.current - dt);
         syncBuffView();
+
+        const pickSpawnBuffType = () => {
+          const picked = randomBuffType();
+          if (picked !== "blades") return picked;
+          if (bladesDropCdRef.current > 0) return randomNonBladeBuffType();
+          bladesDropCdRef.current = BLADES_DROP_COOLDOWN_SECONDS;
+          return "blades";
+        };
 
         const move = touchRef.current.active ? touchRef.current : keyRef.current;
         const moveLen = Math.hypot(move.x, move.y) || 1;
@@ -442,7 +462,7 @@ export default function HomePage() {
             id: idRef.current++,
             x: 36 + Math.random() * Math.max(1, arenaW - 72),
             y: 36 + Math.random() * Math.max(1, arenaH - 72),
-            type: randomBuffType(),
+            type: pickSpawnBuffType(),
             life: 10
           });
         }
@@ -527,7 +547,7 @@ export default function HomePage() {
                     id: idRef.current++,
                     x: e.x,
                     y: e.y,
-                    type: randomBuffType(),
+                    type: pickSpawnBuffType(),
                     life: 10
                   });
                 }
@@ -550,7 +570,8 @@ export default function HomePage() {
             for (const e of enemiesRef.current) {
               if (e.bladeCd > 0) continue;
               if (dist(sx, sy, e.x, e.y) < bladeHitRadius + e.r) {
-                e.hp -= damageRef.current * 0.8;
+                const bladeDamage = Math.min(BLADE_MAX_DAMAGE, damageRef.current * 0.35);
+                e.hp -= bladeDamage;
                 e.bladeCd = 0.18;
                 if (e.hp <= 0) {
                   removeEnemy.add(e.id);
@@ -560,7 +581,7 @@ export default function HomePage() {
                       id: idRef.current++,
                       x: e.x,
                       y: e.y,
-                      type: randomBuffType(),
+                      type: pickSpawnBuffType(),
                       life: 10
                     });
                   }
