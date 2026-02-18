@@ -23,7 +23,9 @@ const DEFAULT_ARENA_HEIGHT = 440;
 const PLAYER_RADIUS = 10;
 const ENEMY_RADIUS = 11;
 const BULLET_RADIUS = 3;
-const BUFF_RADIUS = 8;
+const BUFF_RADIUS = 11;
+const BUFF_MAGNET_RADIUS = 130;
+const BUFF_MAGNET_SPEED = 240;
 
 function toAbsoluteUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -333,6 +335,14 @@ export default function HomePage() {
         }
         for (const buff of buffsRef.current) {
           buff.life -= dt;
+          const d = dist(buff.x, buff.y, playerRef.current.x, playerRef.current.y);
+          if (d < BUFF_MAGNET_RADIUS) {
+            const strength = 0.35 + (1 - d / BUFF_MAGNET_RADIUS) * 1.45;
+            const vx = (playerRef.current.x - buff.x) / (d || 1);
+            const vy = (playerRef.current.y - buff.y) / (d || 1);
+            buff.x += vx * BUFF_MAGNET_SPEED * strength * dt;
+            buff.y += vy * BUFF_MAGNET_SPEED * strength * dt;
+          }
         }
 
         bulletsRef.current = bulletsRef.current.filter(
@@ -600,6 +610,7 @@ export default function HomePage() {
                 <div
                   key={b.id}
                   className={`buff ${b.type}`}
+                  data-buff={b.type}
                   style={{ left: b.x - BUFF_RADIUS, top: b.y - BUFF_RADIUS, width: BUFF_RADIUS * 2, height: BUFF_RADIUS * 2 }}
                 />
               ))}
