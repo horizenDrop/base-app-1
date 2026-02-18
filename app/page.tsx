@@ -74,16 +74,16 @@ function randomSpawnPoint(width: number, height: number) {
 }
 
 function randomBuffType(): BuffType {
-  const pool: BuffType[] = ["haste", "rapid", "shield", "wipe", "blades", "blades"];
+  if (Math.random() < 0.03) return "wipe";
+  const pool: BuffType[] = ["haste", "rapid", "shield", "blades", "blades"];
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function randomNonBladeBuffType(): BuffType {
-  const roll = Math.random();
-  if (roll < 0.38) return "haste";
-  if (roll < 0.72) return "rapid";
-  if (roll < 0.95) return "shield";
-  return "wipe";
+  const v = Math.floor(Math.random() * 3);
+  if (v === 0) return "haste";
+  if (v === 1) return "rapid";
+  return "shield";
 }
 
 function xpForNextLevel(level: number) {
