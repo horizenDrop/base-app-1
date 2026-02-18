@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
-import { Address, createPublicClient, encodeFunctionData, http } from "viem";
+import {
+  Address,
+  createPublicClient,
+  encodeFunctionData,
+  Hex,
+  http,
+  stringToHex
+} from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { gameAbi } from "@/lib/gameAbi";
 
@@ -58,16 +65,36 @@ async function pollBatchStatus(provider: EthereumProvider, batchId: string) {
     });
     const code = statusResult?.status;
     if (code === 100) continue;
-    if (code === 200) return;
+    if (code === 200) return statusResult;
     throw new Error(`Batch failed with status ${String(code)}`);
   }
   throw new Error("Batch status timeout");
+}
+
+function buildCheckinData(score: number): Hex {
+  const payload = JSON.stringify({
+    app: "tap-score",
+    kind: "checkin",
+    score,
+    ts: Date.now()
+  });
+  return stringToHex(payload);
+}
+
+function extractTxHash(statusResult: any): string | null {
+  if (!statusResult) return null;
+  const fromReceipts = statusResult?.receipts?.[0]?.transactionHash;
+  if (typeof fromReceipts === "string") return fromReceipts;
+  const fromTxs = statusResult?.transactions?.[0]?.hash;
+  if (typeof fromTxs === "string") return fromTxs;
+  return null;
 }
 
 export default function HomePage() {
   const [score, setScore] = useState(0);
   const [account, setAccount] = useState<Address | null>(null);
   const [bestOnchain, setBestOnchain] = useState<bigint | null>(null);
+  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
   const [status, setStatus] = useState("Tap to increase your score.");
   const [submitting, setSubmitting] = useState(false);
 
@@ -112,11 +139,6 @@ export default function HomePage() {
       return;
     }
 
-    if (!CONTRACT_ADDRESS) {
-      setStatus("Set NEXT_PUBLIC_GAME_CONTRACT_ADDRESS in .env.local");
-      return;
-    }
-
     if (score <= 0) {
       setStatus("Increase your score before submitting.");
       return;
@@ -143,11 +165,14 @@ export default function HomePage() {
         params: [{ chainId: CHAIN_ID_HEX }]
       });
 
-      const data = encodeFunctionData({
-        abi: gameAbi,
-        functionName: "submitScore",
-        args: [BigInt(score)]
-      });
+      const hasContract = Boolean(CONTRACT_ADDRESS);
+      const data = hasContract
+        ? encodeFunctionData({
+            abi: gameAbi,
+            functionName: "submitScore",
+            args: [BigInt(score)]
+          })
+        : buildCheckinData(score);
 
       const paymasterUrl = toAbsoluteUrl(PAYMASTER_URL);
       const sendResult = await provider.request({
@@ -158,7 +183,13 @@ export default function HomePage() {
             chainId: CHAIN_ID_HEX,
             from: account,
             atomicRequired: false,
-            calls: [{ to: CONTRACT_ADDRESS, data, value: "0x0" }],
+            calls: [
+              {
+                to: hasContract ? CONTRACT_ADDRESS! : account,
+                data,
+                value: "0x0"
+              }
+            ],
             capabilities: {
               paymasterService: { url: paymasterUrl }
             }
@@ -172,12 +203,16 @@ export default function HomePage() {
           : (sendResult?.batchId ?? sendResult?.id ?? null);
       if (batchId) {
         setStatus(`Submitted. Batch ${batchId}. Waiting for confirmation...`);
-        await pollBatchStatus(provider, batchId);
+        const statusResult = await pollBatchStatus(provider, batchId);
+        const txHash = extractTxHash(statusResult);
+        if (txHash) setLastTxHash(txHash);
       } else {
         setStatus("Submitted. Waiting for confirmation...");
       }
 
-      await refreshBestScore();
+      if (hasContract) {
+        await refreshBestScore();
+      }
       setStatus("Onchain check-in saved successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown submit error";
@@ -237,12 +272,12 @@ export default function HomePage() {
         <div className="meta">
           <p>Status: {status}</p>
           <p>Chain: {CHAIN.name} ({CHAIN_ID_HEX})</p>
-          <p>Contract: {CONTRACT_ADDRESS ?? "not configured"}</p>
+          <p>Contract: {CONTRACT_ADDRESS ?? "not configured (contractless check-in mode)"}</p>
           <p>Paymaster URL: {toAbsoluteUrl(PAYMASTER_URL)}</p>
           <p>Best onchain: {bestOnchain !== null ? bestOnchain.toString() : "-"}</p>
+          <p>Last tx: {lastTxHash ?? "-"}</p>
         </div>
       </section>
     </main>
   );
 }
-
