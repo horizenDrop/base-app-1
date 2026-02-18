@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { Attribution } from "ox/erc8021";
 import { Address } from "viem";
 
 type EthereumProvider = {
@@ -39,6 +40,8 @@ type LeaderboardEntry = {
 
 const CHAIN_ID_HEX = "0x2105";
 const WALLET_KEY = "pragma_wallet";
+const BUILDER_CODE = "bc_oub26f3r";
+const DATA_SUFFIX = Attribution.toDataSuffix({ codes: [BUILDER_CODE] });
 
 const DEFAULT_ARENA_WIDTH = 320;
 const DEFAULT_ARENA_HEIGHT = 440;
@@ -681,32 +684,38 @@ export default function HomePage() {
       let txHash: string | null = null;
       let primaryError = "";
       try {
-        txHash = (await provider.request({
-          method: "eth_sendTransaction",
-          params: [{ from: account, to: account, value: scoreWeiHex }]
-        })) as string;
+        const sendResult = await provider.request({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              version: "2.0.0",
+              chainId: CHAIN_ID_HEX,
+              from: account,
+              atomicRequired: false,
+              calls: [{ to: account, value: scoreWeiHex }],
+              capabilities: {
+                dataSuffix: {
+                  value: DATA_SUFFIX,
+                  optional: true
+                }
+              }
+            }
+          ]
+        });
+        txHash = (typeof sendResult === "string" ? null : sendResult?.transactionHash) ?? null;
       } catch (error) {
-        primaryError = error instanceof Error ? error.message : "eth_sendTransaction failed";
+        primaryError = error instanceof Error ? error.message : "wallet_sendCalls failed";
       }
       if (!txHash) {
         try {
-          const sendResult = await provider.request({
-            method: "wallet_sendCalls",
-            params: [
-              {
-                version: "2.0.0",
-                chainId: CHAIN_ID_HEX,
-                from: account,
-                atomicRequired: false,
-                calls: [{ to: account, value: scoreWeiHex }]
-              }
-            ]
-          });
-          txHash = (typeof sendResult === "string" ? null : sendResult?.transactionHash) ?? null;
+          txHash = (await provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: account, to: account, value: scoreWeiHex }]
+          })) as string;
         } catch (error) {
-          const fallbackError = error instanceof Error ? error.message : "wallet_sendCalls failed";
+          const fallbackError = error instanceof Error ? error.message : "eth_sendTransaction failed";
           throw new Error(
-            `Could not send onchain score tx. eth_sendTransaction: ${primaryError || "n/a"}. wallet_sendCalls: ${fallbackError}`
+            `Could not send onchain score tx. wallet_sendCalls: ${primaryError || "n/a"}. eth_sendTransaction: ${fallbackError}`
           );
         }
       }
