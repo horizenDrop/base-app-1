@@ -728,14 +728,19 @@ export default function HomePage() {
           }
         }
         if (typeof sendResult === "string") {
+          // Wallet may return a call id instead of tx hash. Treat as accepted.
           sentViaSendCalls = true;
         } else if (sendResult?.transactionHash) {
           txHash = sendResult.transactionHash;
+          sentViaSendCalls = true;
+        } else if (sendResult) {
+          // Some wallets return an object without transactionHash.
           sentViaSendCalls = true;
         }
       } catch (error) {
         primaryError = error instanceof Error ? error.message : "wallet_sendCalls failed";
       }
+      // Only fallback if wallet_sendCalls was not accepted at all.
       if (!txHash && !sentViaSendCalls) {
         try {
           txHash = (await provider.request({
