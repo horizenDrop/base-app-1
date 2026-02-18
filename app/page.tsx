@@ -672,7 +672,7 @@ export default function HomePage() {
     }
   }, [account, lastRunScore, provider, submitLeaderboardRun]);
 
-  const shareResults = useCallback(() => {
+  const shareResults = useCallback(async () => {
     if (typeof window === "undefined") return;
     const imageUrl = `${window.location.origin}/api/share-image?level=${encodeURIComponent(
       String(level)
@@ -683,11 +683,18 @@ export default function HomePage() {
       `Pragma run results\\n` +
       `Level: ${level} | Score: ${lastRunScore} | Verified: ${bestVerifiedRun}\\n\\n` +
       `join in the game ${GAME_LINK} to show me your skill`;
-    const composeUrl =
-      `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
-      `&embeds[]=${encodeURIComponent(imageUrl)}` +
-      `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
-    window.location.href = composeUrl;
+    try {
+      await sdk.actions.composeCast({
+        text,
+        embeds: [imageUrl, GAME_LINK]
+      });
+    } catch {
+      const composeUrl =
+        `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
+        `&embeds[]=${encodeURIComponent(imageUrl)}` +
+        `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
+      window.location.href = composeUrl;
+    }
   }, [bestVerifiedRun, lastRunScore, level]);
 
   const updateTouchMove = useCallback((clientX: number, clientY: number) => {
