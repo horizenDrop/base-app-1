@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Base Tap Score",
-  description: "Mini app with gasless score submission on Base"
+  title: "Pragma",
+  description: "Onchain survival mini app on Base"
 };
 
 export default function RootLayout({

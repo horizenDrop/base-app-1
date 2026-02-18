@@ -1,14 +1,13 @@
-# Base Tap Score (Gasless Mini App)
+# Pragma (Base Mini App)
 
 Lightweight Base Mini App (game) with:
 - local tap game UI
 - Solidity contract for onchain best score
-- gasless submissions via `wallet_sendCalls` + `paymasterService`
+- onchain score submissions from wallet (paid gas)
 - `farcaster.json` manifest for Base App / Mini App discovery
 
 ## Project structure
-- `app/page.tsx`: mini game + wallet + gasless onchain submit
-- `app/api/paymaster/route.ts`: paymaster proxy (keeps real endpoint server-side)
+- `app/page.tsx`: game + wallet + onchain score submit
 - `public/.well-known/farcaster.json`: Mini App manifest
 - `contracts/src/GaslessScoreGame.sol`: smart contract
 - `contracts/script/DeployGaslessScoreGame.s.sol`: deployment script (Foundry)
@@ -22,9 +21,8 @@ npm install
 ```bash
 cp .env.example .env.local
 ```
-3. Fill:
-- `NEXT_PUBLIC_GAME_CONTRACT_ADDRESS` (after deploy)
-- `PAYMASTER_SERVICE_URL` (CDP paymaster URL or your paymaster backend)
+3. Fill (optional for persistence):
+- `REDIS_URL` or `KV_REST_API_URL/KV_REST_API_TOKEN`
 4. Run app:
 ```bash
 npm run dev
@@ -33,12 +31,9 @@ npm run dev
 ## Deploy contract (Base Sepolia)
 See `contracts/README.md`.
 
-## Gasless flow used
-1. App checks wallet capabilities via `wallet_getCapabilities`.
-2. App calls `wallet_sendCalls` with:
-   - `chainId = 0x14a34` (Base Sepolia)
-   - contract call `submitScore(score)`
-   - `capabilities.paymasterService.url` (proxy route by default)
+## Onchain submit flow
+1. App submits a wallet transaction on Base mainnet (`0x2105`).
+2. On success, app marks the run as verified in leaderboard storage.
 
 ## Prepare for Base App launch
 1. Deploy app to a public HTTPS domain.
@@ -58,4 +53,3 @@ See `contracts/README.md`.
 - https://www.base.org/build
 - https://docs.base.org/get-started/build-app
 - https://docs.base.org/get-started/deploy-smart-contracts
-

@@ -6,11 +6,11 @@
   },
   "frame": {
     "version": "1",
-    "name": "Tap Score",
+    "name": "Pragma",
     "iconUrl": "https://base-app-1-bay.vercel.app/icon.svg",
     "homeUrl": "https://base-app-1-bay.vercel.app",
     "imageUrl": "https://base-app-1-bay.vercel.app/splash.svg",
-    "buttonTitle": "Play Tap Score",
+    "buttonTitle": "Play Pragma",
     "splashImageUrl": "https://base-app-1-bay.vercel.app/splash.svg",
     "splashBackgroundColor": "#0f62fe",
     "webhookUrl": "https://base-app-1-bay.vercel.app/api/webhook"

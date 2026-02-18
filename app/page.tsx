@@ -90,9 +90,7 @@ export default function HomePage() {
   const [phase, setPhase] = useState<Phase>("menu");
   const [account, setAccount] = useState<Address | null>(null);
   const [walletChecked, setWalletChecked] = useState(false);
-  const [status, setStatus] = useState("Connect wallet to play.");
   const [submitting, setSubmitting] = useState(false);
-  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
   const [timeMs, setTimeMs] = useState(0);
   const [kills, setKills] = useState(0);
@@ -150,6 +148,7 @@ export default function HomePage() {
   const maxHpRef = useRef(calcMaxHp(1));
   const currentHpRef = useRef(calcMaxHp(1));
   const runXpGainedRef = useRef(0);
+  const rafIdRef = useRef<number | null>(null);
 
   const liveScore = Math.floor(timeMs / 1000) + kills * 6 + (wave - 1) * 10;
 
@@ -284,36 +283,30 @@ export default function HomePage() {
     setLastRunScore(finalScore);
     setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
-    setStatus("Run failed: swarm caught you.");
     if (account) void submitLeaderboardRun(account, finalScore, false, runXpGainedRef.current);
   }, [account, submitLeaderboardRun]);
 
   const startGame = useCallback(() => {
     if (!account) {
-      setStatus("Connect wallet to start.");
       return;
     }
     resetGame();
     runningRef.current = true;
     setPhase("playing");
-    setStatus("Run started.");
   }, [account, resetGame]);
 
   const connect = useCallback(async () => {
     if (!provider) {
-      setStatus("No wallet provider found. Open inside Base App.");
       return;
     }
     const accounts = (await provider.request({ method: "eth_requestAccounts" })) as Address[];
     if (!accounts.length) {
-      setStatus("Wallet connect failed.");
       return;
     }
     const addr = accounts[0].toLowerCase() as Address;
     setAccount(addr);
     localStorage.setItem(WALLET_KEY, addr);
     await loadLeaderboard(addr);
-    setStatus("Wallet connected.");
   }, [loadLeaderboard, provider]);
 
   useEffect(() => {
@@ -337,10 +330,6 @@ export default function HomePage() {
           setAccount(addr);
           localStorage.setItem(WALLET_KEY, addr);
           await loadLeaderboard(addr);
-          setStatus("Wallet restored.");
-        } else {
-          const saved = localStorage.getItem(WALLET_KEY);
-          if (saved) setStatus("Reconnect wallet to continue progress.");
         }
       } finally {
         setWalletChecked(true);
@@ -355,7 +344,6 @@ export default function HomePage() {
     const onAccountsChanged = (accounts: string[]) => {
       if (!accounts?.length) {
         setAccount(null);
-        setStatus("Wallet disconnected.");
         return;
       }
       const addr = accounts[0].toLowerCase() as Address;
@@ -609,19 +597,21 @@ export default function HomePage() {
         setBulletsView([...bulletsRef.current]);
         setBuffsView([...buffsRef.current]);
       }
-      requestAnimationFrame(loop);
+      rafIdRef.current = requestAnimationFrame(loop);
     };
-    const id = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(id);
+    rafIdRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
   }, [account, endRun, gainXp, syncBuffView]);
 
   const submitOnchain = useCallback(async () => {
     if (!provider || !account) {
-      setStatus("Connect wallet first.");
       return;
     }
     if (lastRunScore <= 0) {
-      setStatus("Play at least one run.");
       return;
     }
     setSubmitting(true);
@@ -660,12 +650,7 @@ export default function HomePage() {
           );
         }
       }
-      if (txHash) setLastTxHash(txHash);
       await submitLeaderboardRun(account, lastRunScore, true, 0);
-      setStatus("Onchain score submitted. Gas paid by wallet.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setStatus(`Submit failed: ${message}`);
     } finally {
       setSubmitting(false);
     }
