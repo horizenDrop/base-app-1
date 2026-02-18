@@ -54,8 +54,8 @@ const BLADES_DROP_COOLDOWN_SECONDS = 15;
 const MAX_SHIELD_CHARGES = 3;
 const MAX_HASTE_SECONDS = 8;
 const MAX_RAPID_SECONDS = 8;
-const MAX_BLADES_SECONDS = 7;
-const BLADE_MAX_DAMAGE = 0.6;
+const BLADES_DURATION_SECONDS = 10;
+const BLADE_MAX_DAMAGE = 0.9;
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -74,12 +74,8 @@ function randomSpawnPoint(width: number, height: number) {
 }
 
 function randomBuffType(): BuffType {
-  const roll = Math.random();
-  if (roll < 0.3) return "haste";
-  if (roll < 0.58) return "rapid";
-  if (roll < 0.8) return "shield";
-  if (roll < 0.96) return "blades";
-  return "wipe";
+  const pool: BuffType[] = ["haste", "rapid", "shield", "wipe", "blades", "blades"];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function randomNonBladeBuffType(): BuffType {
@@ -572,7 +568,7 @@ export default function HomePage() {
             for (const e of enemiesRef.current) {
               if (e.bladeCd > 0) continue;
               if (dist(sx, sy, e.x, e.y) < bladeHitRadius + e.r) {
-                const bladeDamage = Math.min(BLADE_MAX_DAMAGE, damageRef.current * 0.35);
+                const bladeDamage = Math.min(BLADE_MAX_DAMAGE, damageRef.current * 0.55);
                 e.hp -= bladeDamage;
                 e.bladeCd = 0.18;
                 if (e.hp <= 0) {
@@ -616,7 +612,7 @@ export default function HomePage() {
               shieldRef.current = Math.min(MAX_SHIELD_CHARGES, shieldRef.current + 1);
             }
             if (buff.type === "blades") {
-              bladesRef.current = Math.min(MAX_BLADES_SECONDS, bladesRef.current + 2);
+              bladesRef.current = BLADES_DURATION_SECONDS;
             }
             if (buff.type === "wipe") {
               const wiped = enemiesRef.current.length;
