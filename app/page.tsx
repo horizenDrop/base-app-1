@@ -25,7 +25,6 @@ type LeaderboardEntry = {
 };
 
 const CHAIN_ID_HEX = "0x2105";
-const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
 const WALLET_KEY = "pragma_wallet";
 
 const DEFAULT_ARENA_WIDTH = 320;
@@ -37,12 +36,6 @@ const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
 const WAVE_MS = 4000;
-
-function toAbsoluteUrl(url: string) {
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (typeof window === "undefined") return url;
-  return new URL(url, window.location.origin).toString();
-}
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -70,29 +63,6 @@ function randomBuffType(): BuffType {
   if (v === 1) return "rapid";
   if (v === 2) return "shield";
   return "blades";
-}
-
-async function pollBatchStatus(provider: EthereumProvider, batchId: string) {
-  for (let i = 0; i < 15; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    const statusResult = await provider.request({
-      method: "wallet_getCallsStatus",
-      params: [batchId]
-    });
-    const code = statusResult?.status;
-    if (code === 100) continue;
-    if (code === 200) return statusResult;
-    throw new Error(`Batch failed with status ${String(code)}`);
-  }
-  throw new Error("Batch status timeout");
-}
-
-function extractTxHash(statusResult: any): string | null {
-  const a = statusResult?.receipts?.[0]?.transactionHash;
-  if (typeof a === "string") return a;
-  const b = statusResult?.transactions?.[0]?.hash;
-  if (typeof b === "string") return b;
-  return null;
 }
 
 export default function HomePage() {
@@ -565,7 +535,7 @@ export default function HomePage() {
     return () => cancelAnimationFrame(id);
   }, [account, endRun, syncBuffView]);
 
-  const submitGasless = useCallback(async () => {
+  const submitOnchain = useCallback(async () => {
     if (!provider || !account) {
       setStatus("Connect wallet first.");
       return;
@@ -582,66 +552,21 @@ export default function HomePage() {
         params: [{ chainId: CHAIN_ID_HEX }]
       });
 
-      let usedFallback = false;
-      try {
-        const capabilitiesResponse = await provider.request({
-          method: "wallet_getCapabilities",
-          params: [account]
-        });
-        const caps = capabilitiesResponse?.[account] ?? capabilitiesResponse;
-        const chainCaps =
-          caps?.[CHAIN_ID_HEX] ?? caps?.["8453"] ?? caps?.["eip155:8453"] ?? null;
-        if (!chainCaps?.paymasterService?.supported) {
-          throw new Error("Paymaster is not enabled in this wallet.");
-        }
-
-        const sendResult = await provider.request({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "2.0.0",
-              chainId: CHAIN_ID_HEX,
-              from: account,
-              atomicRequired: false,
-              calls: [{ to: account, data: buildCheckinData(lastRunScore), value: "0x0" }],
-              capabilities: { paymasterService: { url: toAbsoluteUrl(PAYMASTER_URL) } }
-            }
-          ]
-        });
-
-        const batchId =
-          typeof sendResult === "string"
-            ? sendResult
-            : (sendResult?.batchId ?? sendResult?.id ?? null);
-
-        if (batchId) {
-          setStatus(`Submitted gasless. Batch ${batchId}...`);
-          const statusResult = await pollBatchStatus(provider, batchId);
-          const txHash = extractTxHash(statusResult);
-          if (txHash) setLastTxHash(txHash);
-        }
-      } catch {
-        usedFallback = true;
-        const txHash = (await provider.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: account,
-              to: account,
-              data: buildCheckinData(lastRunScore),
-              value: "0x0"
-            }
-          ]
-        })) as string;
-        if (txHash) setLastTxHash(txHash);
-      }
+      const txHash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: account,
+            to: account,
+            data: buildCheckinData(lastRunScore),
+            value: "0x0"
+          }
+        ]
+      })) as string;
+      if (txHash) setLastTxHash(txHash);
 
       await submitLeaderboardRun(account, lastRunScore, true);
-      setStatus(
-        usedFallback
-          ? "Check-in saved onchain (fallback tx with your ETH gas)."
-          : "Check-in saved onchain (gasless)."
-      );
+      setStatus("Onchain score submitted. Gas paid by wallet.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus(`Submit failed: ${message}`);
@@ -739,8 +664,8 @@ export default function HomePage() {
                 </div>
                 <div className="menu-actions">
                   <button className="primary big" onClick={startGame}>Start Run</button>
-                  <button className="primary big checkin-btn" onClick={submitGasless} disabled={submitting}>
-                    {submitting ? "Submitting..." : "Submit Gasless Check-in"}
+                  <button className="primary big checkin-btn" onClick={submitOnchain} disabled={submitting}>
+                    {submitting ? "Submitting..." : "Submit Onchain Score"}
                   </button>
                 </div>
               </>
@@ -823,7 +748,7 @@ export default function HomePage() {
           <div className="meta">
             <p>Status: {status}</p>
             <p>Last tx: {lastTxHash ?? "-"}</p>
-            <p>Paymaster URL: {toAbsoluteUrl(PAYMASTER_URL)}</p>
+            <p>Mode: onchain tx (wallet gas)</p>
           </div>
         )}
       </section>
