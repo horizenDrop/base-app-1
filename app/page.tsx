@@ -33,9 +33,9 @@ const PLAYER_RADIUS = 10;
 const ENEMY_RADIUS = 11;
 const BULLET_RADIUS = 3;
 const BUFF_RADIUS = 11;
-const BUFF_MAGNET_RADIUS = 130;
+const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
-const WAVE_MS = 10000;
+const WAVE_MS = 8000;
 
 function toAbsoluteUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -381,7 +381,7 @@ export default function HomePage() {
 
         spawnCdRef.current -= dt;
         if (spawnCdRef.current <= 0) {
-          spawnCdRef.current = Math.max(0.2, 1 - (currentWave - 1) * 0.08);
+          spawnCdRef.current = Math.max(0.14, 0.85 - (currentWave - 1) * 0.1);
           const spawns = 1 + Math.floor((currentWave - 1) / 3);
           for (let i = 0; i < spawns; i += 1) {
             const p = randomSpawnPoint(arenaW, arenaH);
@@ -391,7 +391,7 @@ export default function HomePage() {
               x: p.x,
               y: p.y,
               r: elite ? ENEMY_RADIUS + 3 : ENEMY_RADIUS,
-              speed: 28 + currentWave * 4 + Math.random() * 20,
+              speed: 34 + currentWave * 5 + Math.random() * 24,
               hp: elite ? 2 : 1,
               bladeCd: 0
             });
@@ -800,4 +800,3 @@ export default function HomePage() {
     </main>
   );
 }
-
