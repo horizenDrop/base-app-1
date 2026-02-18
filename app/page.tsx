@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TouchEvent } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Address, Hex, stringToHex } from "viem";
-import type { TouchEvent } from "react";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;
 };
 
-type Enemy = { id: number; x: number; y: number; r: number; speed: number };
+type Enemy = { id: number; x: number; y: number; r: number; speed: number; hp: number };
 type Bullet = { id: number; x: number; y: number; vx: number; vy: number; life: number };
+type BuffType = "haste" | "rapid" | "shield";
+type BuffPickup = { id: number; x: number; y: number; type: BuffType; life: number };
 type Phase = "menu" | "playing" | "gameover";
 
 const CHAIN_ID_HEX = "0x2105";
@@ -21,6 +23,7 @@ const HEIGHT = 440;
 const PLAYER_RADIUS = 10;
 const ENEMY_RADIUS = 11;
 const BULLET_RADIUS = 3;
+const BUFF_RADIUS = 8;
 
 function toAbsoluteUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -29,14 +32,7 @@ function toAbsoluteUrl(url: string) {
 }
 
 function buildCheckinData(score: number): Hex {
-  return stringToHex(
-    JSON.stringify({
-      app: "pragma",
-      kind: "checkin",
-      score,
-      ts: Date.now()
-    })
-  );
+  return stringToHex(JSON.stringify({ app: "pragma", kind: "checkin", score, ts: Date.now() }));
 }
 
 function dist(aX: number, aY: number, bX: number, bY: number) {
@@ -51,6 +47,13 @@ function randomSpawnPoint() {
   if (side === 1) return { x: WIDTH + 20, y: Math.random() * HEIGHT };
   if (side === 2) return { x: Math.random() * WIDTH, y: HEIGHT + 20 };
   return { x: -20, y: Math.random() * HEIGHT };
+}
+
+function randomBuffType(): BuffType {
+  const v = Math.floor(Math.random() * 3);
+  if (v === 0) return "haste";
+  if (v === 1) return "rapid";
+  return "shield";
 }
 
 async function pollBatchStatus(provider: EthereumProvider, batchId: string) {
@@ -79,20 +82,23 @@ function extractTxHash(statusResult: any): string | null {
 export default function HomePage() {
   const [phase, setPhase] = useState<Phase>("menu");
   const [account, setAccount] = useState<Address | null>(null);
-  const [status, setStatus] = useState("Enable sensor, then start the run.");
+  const [status, setStatus] = useState("Tap Start and drag on arena to move.");
   const [submitting, setSubmitting] = useState(false);
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
   const [timeMs, setTimeMs] = useState(0);
   const [kills, setKills] = useState(0);
+  const [wave, setWave] = useState(1);
   const [bestRun, setBestRun] = useState(0);
   const [lastRunScore, setLastRunScore] = useState(0);
 
-  const [sensorEnabled, setSensorEnabled] = useState(false);
-  const [sensorSupported, setSensorSupported] = useState(false);
   const [player, setPlayer] = useState({ x: WIDTH / 2, y: HEIGHT / 2 });
   const [enemiesView, setEnemiesView] = useState<Enemy[]>([]);
   const [bulletsView, setBulletsView] = useState<Bullet[]>([]);
+  const [buffsView, setBuffsView] = useState<BuffPickup[]>([]);
+  const [hasteLeftMs, setHasteLeftMs] = useState(0);
+  const [rapidLeftMs, setRapidLeftMs] = useState(0);
+  const [shieldCharges, setShieldCharges] = useState(0);
 
   const provider = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -100,57 +106,78 @@ export default function HomePage() {
   }, []);
 
   const runningRef = useRef(false);
+  const arenaRef = useRef<HTMLDivElement | null>(null);
+  const touchRef = useRef({ x: 0, y: 0, active: false });
+  const keyRef = useRef({ x: 0, y: 0 });
   const playerRef = useRef({ x: WIDTH / 2, y: HEIGHT / 2 });
   const enemiesRef = useRef<Enemy[]>([]);
   const bulletsRef = useRef<Bullet[]>([]);
+  const buffsRef = useRef<BuffPickup[]>([]);
   const killRef = useRef(0);
   const timeRef = useRef(0);
   const idRef = useRef(1);
-  const shootCdRef = useRef(0);
-  const spawnCdRef = useRef(1.4);
-  const graceRef = useRef(0);
-  const tiltRef = useRef({ x: 0, y: 0 });
-  const keyRef = useRef({ x: 0, y: 0 });
-  const touchRef = useRef({ x: 0, y: 0, active: false });
-  const arenaRef = useRef<HTMLDivElement | null>(null);
+  const shootCdRef = useRef(0.25);
+  const spawnCdRef = useRef(1.2);
+  const buffSpawnCdRef = useRef(9);
+  const graceRef = useRef(1.2);
+  const hasteRef = useRef(0);
+  const rapidRef = useRef(0);
+  const shieldRef = useRef(0);
 
-  const liveScore = Math.floor(timeMs / 1000) + kills * 5;
+  const liveScore = Math.floor(timeMs / 1000) + kills * 6 + (wave - 1) * 10;
+
+  const syncBuffView = useCallback(() => {
+    setHasteLeftMs(Math.max(0, Math.floor(hasteRef.current * 1000)));
+    setRapidLeftMs(Math.max(0, Math.floor(rapidRef.current * 1000)));
+    setShieldCharges(shieldRef.current);
+  }, []);
 
   const resetGame = useCallback(() => {
     runningRef.current = false;
+    touchRef.current = { x: 0, y: 0, active: false };
     playerRef.current = { x: WIDTH / 2, y: HEIGHT / 2 };
     enemiesRef.current = [];
     bulletsRef.current = [];
+    buffsRef.current = [];
     killRef.current = 0;
     timeRef.current = 0;
-    shootCdRef.current = 0.2;
-    spawnCdRef.current = 1.4;
-    graceRef.current = 1.3;
+    shootCdRef.current = 0.25;
+    spawnCdRef.current = 1.2;
+    buffSpawnCdRef.current = 8.5;
+    graceRef.current = 1.2;
+    hasteRef.current = 0;
+    rapidRef.current = 0;
+    shieldRef.current = 0;
     setPlayer(playerRef.current);
     setEnemiesView([]);
     setBulletsView([]);
+    setBuffsView([]);
     setKills(0);
     setTimeMs(0);
-  }, []);
+    setWave(1);
+    syncBuffView();
+  }, [syncBuffView]);
 
   const endRun = useCallback((reason: "dead" | "manual") => {
     runningRef.current = false;
     const finalTime = Math.floor(timeRef.current);
     const finalKills = killRef.current;
-    const finalScore = Math.floor(finalTime / 1000) + finalKills * 5;
+    const finalWave = Math.floor(finalTime / 15000) + 1;
+    const finalScore = Math.floor(finalTime / 1000) + finalKills * 6 + (finalWave - 1) * 10;
     setTimeMs(finalTime);
     setKills(finalKills);
+    setWave(finalWave);
     setLastRunScore(finalScore);
-    setBestRun((p) => Math.max(p, finalScore));
+    setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
-    setStatus(reason === "dead" ? "You were overrun." : "Run ended.");
+    setStatus(reason === "dead" ? "Run failed: swarm caught you." : "Run ended.");
   }, []);
 
   const startGame = useCallback(() => {
     resetGame();
     runningRef.current = true;
     setPhase("playing");
-    setStatus("Survive.");
+    setStatus("Run started.");
   }, [resetGame]);
 
   useEffect(() => {
@@ -187,43 +214,6 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    setSensorSupported("DeviceOrientationEvent" in window);
-  }, []);
-
-  useEffect(() => {
-    if (!sensorEnabled) return;
-    const onOrientation = (e: DeviceOrientationEvent) => {
-      const beta = e.beta ?? 0;
-      const gamma = e.gamma ?? 0;
-      const x = Math.max(-1, Math.min(1, gamma / 28));
-      const y = Math.max(-1, Math.min(1, beta / 28));
-      tiltRef.current = { x, y };
-    };
-    window.addEventListener("deviceorientation", onOrientation);
-    return () => window.removeEventListener("deviceorientation", onOrientation);
-  }, [sensorEnabled]);
-
-  const enableSensor = useCallback(async () => {
-    try {
-      const AnyOrientation = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
-        requestPermission?: () => Promise<"granted" | "denied">;
-      };
-      if (typeof AnyOrientation.requestPermission === "function") {
-        const permission = await AnyOrientation.requestPermission();
-        if (permission !== "granted") {
-          setStatus("Sensor permission denied.");
-          return;
-        }
-      }
-      setSensorEnabled(true);
-      setStatus("Sensor enabled.");
-    } catch {
-      setStatus("Could not enable sensor.");
-    }
-  }, []);
-
-  useEffect(() => {
     let last = performance.now();
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.04);
@@ -231,19 +221,22 @@ export default function HomePage() {
 
       if (runningRef.current) {
         timeRef.current += dt * 1000;
+        const currentWave = Math.floor(timeRef.current / 15000) + 1;
+        setWave(currentWave);
         setTimeMs(Math.floor(timeRef.current));
 
-        const sensor = sensorEnabled ? tiltRef.current : { x: 0, y: 0 };
+        hasteRef.current = Math.max(0, hasteRef.current - dt);
+        rapidRef.current = Math.max(0, rapidRef.current - dt);
+        syncBuffView();
+
         const touch = touchRef.current;
-        const moveX =
-          touch.active ? touch.x : Math.abs(sensor.x) > 0.05 ? sensor.x : keyRef.current.x;
-        const moveY =
-          touch.active ? touch.y : Math.abs(sensor.y) > 0.05 ? sensor.y : keyRef.current.y;
+        const moveX = touch.active ? touch.x : keyRef.current.x;
+        const moveY = touch.active ? touch.y : keyRef.current.y;
         const moveLen = Math.hypot(moveX, moveY) || 1;
         const nx = moveX / moveLen;
         const ny = moveY / moveLen;
-        const speed = 170;
-
+        const speedBoost = hasteRef.current > 0 ? 1.45 : 1;
+        const speed = 170 * speedBoost;
         playerRef.current.x = Math.max(
           PLAYER_RADIUS,
           Math.min(WIDTH - PLAYER_RADIUS, playerRef.current.x + nx * speed * dt)
@@ -255,20 +248,38 @@ export default function HomePage() {
 
         spawnCdRef.current -= dt;
         if (spawnCdRef.current <= 0) {
-          spawnCdRef.current = Math.max(0.38, 0.95 - timeRef.current / 26000);
-          const p = randomSpawnPoint();
-          enemiesRef.current.push({
+          const baseInterval = Math.max(0.2, 1 - (currentWave - 1) * 0.08);
+          spawnCdRef.current = baseInterval;
+          const spawns = 1 + Math.floor((currentWave - 1) / 3);
+          for (let i = 0; i < spawns; i += 1) {
+            const p = randomSpawnPoint();
+            const elite = currentWave >= 4 && Math.random() < Math.min(0.45, 0.08 * currentWave);
+            enemiesRef.current.push({
+              id: idRef.current++,
+              x: p.x,
+              y: p.y,
+              r: elite ? ENEMY_RADIUS + 3 : ENEMY_RADIUS,
+              speed: 28 + currentWave * 4 + Math.random() * 20,
+              hp: elite ? 2 : 1
+            });
+          }
+        }
+
+        buffSpawnCdRef.current -= dt;
+        if (buffSpawnCdRef.current <= 0) {
+          buffSpawnCdRef.current = 10 + Math.random() * 4;
+          buffsRef.current.push({
             id: idRef.current++,
-            x: p.x,
-            y: p.y,
-            r: ENEMY_RADIUS,
-            speed: 28 + Math.random() * 20 + Math.min(45, timeRef.current / 1300)
+            x: 36 + Math.random() * (WIDTH - 72),
+            y: 36 + Math.random() * (HEIGHT - 72),
+            type: randomBuffType(),
+            life: 10
           });
         }
 
         shootCdRef.current -= dt;
         if (shootCdRef.current <= 0) {
-          shootCdRef.current = 0.28;
+          shootCdRef.current = rapidRef.current > 0 ? 0.16 : 0.28;
           let nearest: Enemy | null = null;
           let nearestDist = Infinity;
           for (const e of enemiesRef.current) {
@@ -286,9 +297,9 @@ export default function HomePage() {
               id: idRef.current++,
               x: playerRef.current.x,
               y: playerRef.current.y,
-              vx: (tx / l) * 300,
-              vy: (ty / l) * 300,
-              life: 1.25
+              vx: (tx / l) * 320,
+              vy: (ty / l) * 320,
+              life: 1.1
             });
           }
         }
@@ -306,10 +317,14 @@ export default function HomePage() {
           b.y += b.vy * dt;
           b.life -= dt;
         }
+        for (const buff of buffsRef.current) {
+          buff.life -= dt;
+        }
 
         bulletsRef.current = bulletsRef.current.filter(
           (b) => b.life > 0 && b.x > -24 && b.x < WIDTH + 24 && b.y > -24 && b.y < HEIGHT + 24
         );
+        buffsRef.current = buffsRef.current.filter((b) => b.life > 0);
 
         const removeEnemy = new Set<number>();
         const removeBullet = new Set<number>();
@@ -317,36 +332,62 @@ export default function HomePage() {
           for (const e of enemiesRef.current) {
             if (removeEnemy.has(e.id)) continue;
             if (dist(b.x, b.y, e.x, e.y) < BULLET_RADIUS + e.r) {
-              removeEnemy.add(e.id);
+              e.hp -= 1;
               removeBullet.add(b.id);
-              killRef.current += 1;
+              if (e.hp <= 0) {
+                removeEnemy.add(e.id);
+                killRef.current += 1;
+              }
             }
           }
         }
-        if (removeEnemy.size > 0) {
+        if (removeEnemy.size > 0 || removeBullet.size > 0) {
           enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
           bulletsRef.current = bulletsRef.current.filter((b) => !removeBullet.has(b.id));
           setKills(killRef.current);
         }
 
+        for (const buff of buffsRef.current) {
+          if (dist(buff.x, buff.y, playerRef.current.x, playerRef.current.y) < BUFF_RADIUS + PLAYER_RADIUS) {
+            if (buff.type === "haste") hasteRef.current = 8;
+            if (buff.type === "rapid") rapidRef.current = 8;
+            if (buff.type === "shield") shieldRef.current += 1;
+            buffsRef.current = buffsRef.current.filter((v) => v.id !== buff.id);
+            syncBuffView();
+          }
+        }
+
         graceRef.current -= dt;
         if (graceRef.current <= 0) {
-          const hit = enemiesRef.current.some(
-            (e) => dist(e.x, e.y, playerRef.current.x, playerRef.current.y) < e.r + PLAYER_RADIUS
-          );
-          if (hit) endRun("dead");
+          let hitEnemy: Enemy | null = null;
+          for (const e of enemiesRef.current) {
+            if (dist(e.x, e.y, playerRef.current.x, playerRef.current.y) < e.r + PLAYER_RADIUS) {
+              hitEnemy = e;
+              break;
+            }
+          }
+          if (hitEnemy) {
+            if (shieldRef.current > 0) {
+              shieldRef.current -= 1;
+              graceRef.current = 0.5;
+              enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
+              syncBuffView();
+            } else {
+              endRun("dead");
+            }
+          }
         }
 
         setPlayer({ ...playerRef.current });
         setEnemiesView([...enemiesRef.current]);
         setBulletsView([...bulletsRef.current]);
+        setBuffsView([...buffsRef.current]);
       }
-
       requestAnimationFrame(loop);
     };
     const id = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(id);
-  }, [endRun, sensorEnabled]);
+  }, [endRun, syncBuffView]);
 
   const connect = useCallback(async () => {
     if (!provider) {
@@ -436,10 +477,10 @@ export default function HomePage() {
     const rect = arena.getBoundingClientRect();
     const px = playerRef.current.x;
     const py = playerRef.current.y;
-    const targetX = clientX - rect.left;
-    const targetY = clientY - rect.top;
-    const dx = targetX - px;
-    const dy = targetY - py;
+    const tx = clientX - rect.left;
+    const ty = clientY - rect.top;
+    const dx = tx - px;
+    const dy = ty - py;
     const len = Math.hypot(dx, dy);
     if (len < 8) {
       touchRef.current = { x: 0, y: 0, active: true };
@@ -460,7 +501,6 @@ export default function HomePage() {
     },
     [updateTouchMove]
   );
-
   const onArenaTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
       const t = e.touches[0];
@@ -469,46 +509,40 @@ export default function HomePage() {
     },
     [updateTouchMove]
   );
-
   const onArenaTouchEnd = useCallback(() => {
     touchRef.current = { x: 0, y: 0, active: false };
   }, []);
 
+  const activeBuffs = [
+    hasteLeftMs > 0 ? `Haste ${Math.ceil(hasteLeftMs / 1000)}s` : null,
+    rapidLeftMs > 0 ? `Rapid ${Math.ceil(rapidLeftMs / 1000)}s` : null,
+    shieldCharges > 0 ? `Shield x${shieldCharges}` : null
+  ].filter(Boolean) as string[];
+
   return (
     <main className="page">
       <section className="card">
-        <p className="eyebrow">Base Mini App</p>
-        <h1>Pragma</h1>
+        <header className="top">
+          <p className="eyebrow">Base Mini App</p>
+          <h1>Pragma</h1>
+        </header>
 
         {phase !== "playing" && (
           <>
-            <p className="muted">Tilt to move. Survive and auto-shoot incoming swarm.</p>
-            <div className="menu-grid">
-              <div className="menu-stat">Best: {bestRun}</div>
-              <div className="menu-stat">Last: {lastRunScore}</div>
-              <div className="menu-stat">Sensor: {sensorEnabled ? "On" : "Off"}</div>
-              <div className="menu-stat">
-                Wallet: {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "Not connected"}
-              </div>
+            <p className="muted">Drag finger on arena to steer. Survive longer waves and stack buffs.</p>
+            <div className="menu-stats">
+              <div className="menu-stat"><span>Best</span><strong>{bestRun}</strong></div>
+              <div className="menu-stat"><span>Last</span><strong>{lastRunScore}</strong></div>
+              <div className="menu-stat"><span>Wallet</span><strong>{account ? "Connected" : "Offline"}</strong></div>
+              <div className="menu-stat"><span>Last Tx</span><strong>{lastTxHash ? "Yes" : "No"}</strong></div>
             </div>
-            <div className="actions">
-              <button className="primary" onClick={startGame}>
-                Start Run
-              </button>
-              <button
-                className="ghost"
-                onClick={enableSensor}
-                disabled={!sensorSupported || sensorEnabled}
-              >
-                {sensorEnabled ? "Sensor Enabled" : "Enable Sensor"}
-              </button>
-            </div>
-            <div className="actions">
-              <button className="ghost" onClick={connect} disabled={!!account}>
+            <div className="menu-actions">
+              <button className="primary big" onClick={startGame}>Start Run</button>
+              <button className="ghost big" onClick={connect} disabled={!!account}>
                 {account ? "Wallet Connected" : "Connect Wallet"}
               </button>
               <button className="primary" onClick={submitGasless} disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit Gasless Check-in"}
+                {submitting ? "Submitting..." : "Submit Last Run"}
               </button>
             </div>
           </>
@@ -518,8 +552,12 @@ export default function HomePage() {
           <>
             <div className="hud-live">
               <span>{(timeMs / 1000).toFixed(1)}s</span>
+              <span>Wave {wave}</span>
               <span>Kills {kills}</span>
               <span>Score {liveScore}</span>
+            </div>
+            <div className="buff-row">
+              {activeBuffs.length ? activeBuffs.map((b) => <span key={b}>{b}</span>) : <span>No Buff</span>}
             </div>
             <div className="arena">
               <div
@@ -529,14 +567,11 @@ export default function HomePage() {
                 onTouchMove={onArenaTouchMove}
                 onTouchEnd={onArenaTouchEnd}
               />
-              <div
-                className="player"
-                style={{ left: player.x - PLAYER_RADIUS, top: player.y - PLAYER_RADIUS }}
-              />
+              <div className="player" style={{ left: player.x - PLAYER_RADIUS, top: player.y - PLAYER_RADIUS }} />
               {enemiesView.map((e) => (
                 <div
                   key={e.id}
-                  className="enemy"
+                  className={`enemy ${e.hp > 1 ? "elite" : ""}`}
                   style={{ left: e.x - e.r, top: e.y - e.r, width: e.r * 2, height: e.r * 2 }}
                 />
               ))}
@@ -544,28 +579,32 @@ export default function HomePage() {
                 <div
                   key={b.id}
                   className="bullet"
-                  style={{
-                    left: b.x - BULLET_RADIUS,
-                    top: b.y - BULLET_RADIUS,
-                    width: BULLET_RADIUS * 2,
-                    height: BULLET_RADIUS * 2
-                  }}
+                  style={{ left: b.x - BULLET_RADIUS, top: b.y - BULLET_RADIUS, width: BULLET_RADIUS * 2, height: BULLET_RADIUS * 2 }}
+                />
+              ))}
+              {buffsView.map((b) => (
+                <div
+                  key={b.id}
+                  className={`buff ${b.type}`}
+                  style={{ left: b.x - BUFF_RADIUS, top: b.y - BUFF_RADIUS, width: BUFF_RADIUS * 2, height: BUFF_RADIUS * 2 }}
                 />
               ))}
             </div>
             <div className="actions">
-              <button className="ghost" onClick={() => endRun("manual")}>
-                End Run
-              </button>
+              <button className="ghost" onClick={() => endRun("manual")}>End Run</button>
             </div>
           </>
         )}
 
-        <div className="meta">
-          <p>Status: {status}</p>
-          <p>Last tx: {lastTxHash ?? "-"}</p>
-        </div>
+        {phase !== "playing" && (
+          <div className="meta">
+            <p>Status: {status}</p>
+            <p>Last tx: {lastTxHash ?? "-"}</p>
+            <p>Paymaster URL: {toAbsoluteUrl(PAYMASTER_URL)}</p>
+          </div>
+        )}
       </section>
     </main>
   );
 }
+
