@@ -683,32 +683,36 @@ export default function HomePage() {
       `Pragma run results\\n` +
       `Level: ${level} | Score: ${lastRunScore} | Verified: ${bestVerifiedRun}\\n\\n` +
       `join in the game ${GAME_LINK} to show me your skill`;
-    const composeUrl =
-      `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
-      `&embeds[]=${encodeURIComponent(imageUrl)}` +
-      `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
-    let timedOutRedirect = false;
-    const forceRedirectTimer = setTimeout(() => {
-      timedOutRedirect = true;
-      window.location.assign(composeUrl);
-    }, 1000);
     try {
-      await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
-      clearTimeout(forceRedirectTimer);
-      return;
-    } catch {
-      clearTimeout(forceRedirectTimer);
-      if (timedOutRedirect) return;
-      try {
-        await sdk.actions.openUrl({ url: composeUrl });
+      const isMiniApp = await sdk.isInMiniApp();
+      if (isMiniApp) {
+        await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
         return;
-      } catch {
-        try {
-          window.location.assign(composeUrl);
-        } catch {
-          window.open(composeUrl, "_blank");
-        }
       }
+    } catch {
+      // ignore and fallback to native share/copy below
+    }
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({
+          title: "Pragma",
+          text,
+          url: GAME_LINK
+        });
+        return;
+      }
+    } catch {
+      // ignore and fallback to clipboard below
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${text}\\n${imageUrl}`);
+        setStatus("Results copied. Paste in Base App post composer.");
+      } else {
+        setStatus("Share unavailable in this session.");
+      }
+    } catch {
+      setStatus("Share unavailable in this session.");
     }
   }, [bestVerifiedRun, lastRunScore, level]);
 
