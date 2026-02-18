@@ -577,49 +577,71 @@ export default function HomePage() {
 
     setSubmitting(true);
     try {
-      const capabilitiesResponse = await provider.request({
-        method: "wallet_getCapabilities",
-        params: [account]
-      });
-      const caps = capabilitiesResponse?.[account] ?? capabilitiesResponse;
-      const chainCaps =
-        caps?.[CHAIN_ID_HEX] ?? caps?.["8453"] ?? caps?.["eip155:8453"] ?? null;
-      if (!chainCaps?.paymasterService?.supported) {
-        throw new Error("Paymaster is not enabled in this wallet.");
-      }
-
       await provider.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: CHAIN_ID_HEX }]
       });
 
-      const sendResult = await provider.request({
-        method: "wallet_sendCalls",
-        params: [
-          {
-            version: "2.0.0",
-            chainId: CHAIN_ID_HEX,
-            from: account,
-            atomicRequired: false,
-            calls: [{ to: account, data: buildCheckinData(lastRunScore), value: "0x0" }],
-            capabilities: { paymasterService: { url: toAbsoluteUrl(PAYMASTER_URL) } }
-          }
-        ]
-      });
+      let usedFallback = false;
+      try {
+        const capabilitiesResponse = await provider.request({
+          method: "wallet_getCapabilities",
+          params: [account]
+        });
+        const caps = capabilitiesResponse?.[account] ?? capabilitiesResponse;
+        const chainCaps =
+          caps?.[CHAIN_ID_HEX] ?? caps?.["8453"] ?? caps?.["eip155:8453"] ?? null;
+        if (!chainCaps?.paymasterService?.supported) {
+          throw new Error("Paymaster is not enabled in this wallet.");
+        }
 
-      const batchId =
-        typeof sendResult === "string"
-          ? sendResult
-          : (sendResult?.batchId ?? sendResult?.id ?? null);
+        const sendResult = await provider.request({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              version: "2.0.0",
+              chainId: CHAIN_ID_HEX,
+              from: account,
+              atomicRequired: false,
+              calls: [{ to: account, data: buildCheckinData(lastRunScore), value: "0x0" }],
+              capabilities: { paymasterService: { url: toAbsoluteUrl(PAYMASTER_URL) } }
+            }
+          ]
+        });
 
-      if (batchId) {
-        setStatus(`Submitted. Batch ${batchId}...`);
-        const statusResult = await pollBatchStatus(provider, batchId);
-        const txHash = extractTxHash(statusResult);
+        const batchId =
+          typeof sendResult === "string"
+            ? sendResult
+            : (sendResult?.batchId ?? sendResult?.id ?? null);
+
+        if (batchId) {
+          setStatus(`Submitted gasless. Batch ${batchId}...`);
+          const statusResult = await pollBatchStatus(provider, batchId);
+          const txHash = extractTxHash(statusResult);
+          if (txHash) setLastTxHash(txHash);
+        }
+      } catch {
+        usedFallback = true;
+        const txHash = (await provider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: account,
+              to: account,
+              data: buildCheckinData(lastRunScore),
+              value: "0x0"
+            }
+          ]
+        })) as string;
         if (txHash) setLastTxHash(txHash);
       }
+
       await submitLeaderboardRun(account, lastRunScore, true);
-      setStatus("Check-in saved onchain.");
+      setStatus(
+        usedFallback
+          ? "Check-in saved onchain (fallback tx with your ETH gas)."
+          : "Check-in saved onchain (gasless)."
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus(`Submit failed: ${message}`);
