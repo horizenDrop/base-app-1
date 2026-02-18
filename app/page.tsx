@@ -519,6 +519,7 @@ export default function HomePage() {
 
   const onArenaTouchStart = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
+      e.preventDefault();
       const t = e.touches[0];
       if (!t) return;
       updateTouchMove(t.clientX, t.clientY);
@@ -527,6 +528,7 @@ export default function HomePage() {
   );
   const onArenaTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
+      e.preventDefault();
       const t = e.touches[0];
       if (!t) return;
       updateTouchMove(t.clientX, t.clientY);

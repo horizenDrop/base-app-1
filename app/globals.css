@@ -19,6 +19,9 @@ body {
     radial-gradient(circle at 18% 0%, #1c1c1c, #0b0b0b 52%),
     linear-gradient(180deg, #0d0d0d, #070707);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .page {
@@ -142,6 +145,10 @@ h1 {
   position: absolute;
   inset: 0;
   z-index: 5;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .player,
