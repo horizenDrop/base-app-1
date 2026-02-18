@@ -231,7 +231,7 @@ export default function HomePage() {
     const hp = calcMaxHp(lvl);
     damageRef.current = dmg;
     maxHpRef.current = hp;
-    currentHpRef.current = Math.min(currentHpRef.current + 1, hp);
+    currentHpRef.current = Math.min(currentHpRef.current, hp);
     setLevel(lvl);
     setLevelXp(xp);
     setNextLevelXp(xpForNextLevel(lvl));
@@ -591,7 +591,7 @@ export default function HomePage() {
               graceRef.current = 0.5;
               syncBuffView();
             } else {
-              currentHpRef.current -= 1;
+              currentHpRef.current = Math.max(0, currentHpRef.current - 1);
               setCurrentHp(currentHpRef.current);
               graceRef.current = 0.5;
               if (currentHpRef.current <= 0) endRun();
