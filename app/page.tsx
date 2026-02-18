@@ -831,13 +831,6 @@ export default function HomePage() {
           </>
         )}
 
-        {phase !== "playing" && (
-          <div className="meta">
-            <p>Status: {status}</p>
-            <p>Last tx: {lastTxHash ?? "-"}</p>
-            <p>Mode: onchain tx (wallet gas)</p>
-          </div>
-        )}
       </section>
     </main>
   );
