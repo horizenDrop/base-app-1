@@ -1,0 +1,22 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "frame": {
+    "version": "1",
+    "name": "Tap Score",
+    "iconUrl": "https://YOUR_DOMAIN/icon.svg",
+    "homeUrl": "https://YOUR_DOMAIN",
+    "imageUrl": "https://YOUR_DOMAIN/splash.svg",
+    "buttonTitle": "Play Tap Score",
+    "splashImageUrl": "https://YOUR_DOMAIN/splash.svg",
+    "splashBackgroundColor": "#0f62fe",
+    "webhookUrl": "https://YOUR_DOMAIN/api/webhook"
+  },
+  "baseBuilder": {
+    "allowedAddresses": ["0x0000000000000000000000000000000000000000"]
+  }
+}
+
