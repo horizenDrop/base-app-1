@@ -11,8 +11,8 @@ type LeaderboardEntry = {
   updatedAt: number;
 };
 
-const KV_URL = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const KV_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
 const KV_KEY = "pragma:leaderboard:v1";
 
 const store = globalThis as unknown as {
@@ -117,21 +117,26 @@ function profileFromEntry(entry: LeaderboardEntry) {
 }
 
 export async function GET(request: NextRequest) {
-  const address = request.nextUrl.searchParams.get("address");
-  const entries = await readEntries();
-  const normalizedEntries = entries.map((entry) => normalizeEntry(entry));
-  store.pragmaLeaderboard = new Map(normalizedEntries.map((entry) => [entry.address, entry]));
-  const leaderboard = getSorted().slice(0, 100);
-  if (!address) {
+  try {
+    const address = request.nextUrl.searchParams.get("address");
+    const entries = await readEntries();
+    const normalizedEntries = entries.map((entry) => normalizeEntry(entry));
+    store.pragmaLeaderboard = new Map(normalizedEntries.map((entry) => [entry.address, entry]));
+    const leaderboard = getSorted().slice(0, 100);
+    if (!address) {
+      return NextResponse.json({
+        leaderboard: leaderboard.map((entry) => profileFromEntry(entry))
+      });
+    }
+    const profile = store.pragmaLeaderboard!.get(normalizeAddress(address)) ?? null;
     return NextResponse.json({
-      leaderboard: leaderboard.map((entry) => profileFromEntry(entry))
+      leaderboard: leaderboard.map((entry) => profileFromEntry(entry)),
+      profile: profile ? profileFromEntry(profile) : null
     });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "GET leaderboard failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-  const profile = store.pragmaLeaderboard!.get(normalizeAddress(address)) ?? null;
-  return NextResponse.json({
-    leaderboard: leaderboard.map((entry) => profileFromEntry(entry)),
-    profile: profile ? profileFromEntry(profile) : null
-  });
 }
 
 export async function POST(request: NextRequest) {
@@ -179,7 +184,8 @@ export async function POST(request: NextRequest) {
         .slice(0, 100)
         .map((entry) => profileFromEntry(entry))
     });
-  } catch {
-    return NextResponse.json({ error: "invalid request body" }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "POST leaderboard failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

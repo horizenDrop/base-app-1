@@ -589,13 +589,11 @@ export default function HomePage() {
             if (shieldRef.current > 0) {
               shieldRef.current -= 1;
               graceRef.current = 0.5;
-              enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
               syncBuffView();
             } else {
               currentHpRef.current -= 1;
               setCurrentHp(currentHpRef.current);
               graceRef.current = 0.5;
-              enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
               if (currentHpRef.current <= 0) endRun();
             }
           }
@@ -728,7 +726,6 @@ export default function HomePage() {
     <main className={`page ${phase === "playing" ? "playing" : ""}`}>
       <section className="card">
         <header className="top">
-          <p className="eyebrow">Base Mini App</p>
           <h1>Pragma</h1>
         </header>
 
