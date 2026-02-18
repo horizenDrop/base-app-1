@@ -18,8 +18,8 @@ type Phase = "menu" | "playing" | "gameover";
 const CHAIN_ID_HEX = "0x2105";
 const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
 
-const WIDTH = 320;
-const HEIGHT = 440;
+const DEFAULT_ARENA_WIDTH = 320;
+const DEFAULT_ARENA_HEIGHT = 440;
 const PLAYER_RADIUS = 10;
 const ENEMY_RADIUS = 11;
 const BULLET_RADIUS = 3;
@@ -41,12 +41,12 @@ function dist(aX: number, aY: number, bX: number, bY: number) {
   return Math.hypot(dx, dy);
 }
 
-function randomSpawnPoint() {
+function randomSpawnPoint(width: number, height: number) {
   const side = Math.floor(Math.random() * 4);
-  if (side === 0) return { x: Math.random() * WIDTH, y: -20 };
-  if (side === 1) return { x: WIDTH + 20, y: Math.random() * HEIGHT };
-  if (side === 2) return { x: Math.random() * WIDTH, y: HEIGHT + 20 };
-  return { x: -20, y: Math.random() * HEIGHT };
+  if (side === 0) return { x: Math.random() * width, y: -20 };
+  if (side === 1) return { x: width + 20, y: Math.random() * height };
+  if (side === 2) return { x: Math.random() * width, y: height + 20 };
+  return { x: -20, y: Math.random() * height };
 }
 
 function randomBuffType(): BuffType {
@@ -92,7 +92,10 @@ export default function HomePage() {
   const [bestRun, setBestRun] = useState(0);
   const [lastRunScore, setLastRunScore] = useState(0);
 
-  const [player, setPlayer] = useState({ x: WIDTH / 2, y: HEIGHT / 2 });
+  const [player, setPlayer] = useState({
+    x: DEFAULT_ARENA_WIDTH / 2,
+    y: DEFAULT_ARENA_HEIGHT / 2
+  });
   const [enemiesView, setEnemiesView] = useState<Enemy[]>([]);
   const [bulletsView, setBulletsView] = useState<Bullet[]>([]);
   const [buffsView, setBuffsView] = useState<BuffPickup[]>([]);
@@ -109,7 +112,8 @@ export default function HomePage() {
   const arenaRef = useRef<HTMLDivElement | null>(null);
   const touchRef = useRef({ x: 0, y: 0, active: false });
   const keyRef = useRef({ x: 0, y: 0 });
-  const playerRef = useRef({ x: WIDTH / 2, y: HEIGHT / 2 });
+  const playerRef = useRef({ x: DEFAULT_ARENA_WIDTH / 2, y: DEFAULT_ARENA_HEIGHT / 2 });
+  const arenaSizeRef = useRef({ w: DEFAULT_ARENA_WIDTH, h: DEFAULT_ARENA_HEIGHT });
   const enemiesRef = useRef<Enemy[]>([]);
   const bulletsRef = useRef<Bullet[]>([]);
   const buffsRef = useRef<BuffPickup[]>([]);
@@ -135,7 +139,8 @@ export default function HomePage() {
   const resetGame = useCallback(() => {
     runningRef.current = false;
     touchRef.current = { x: 0, y: 0, active: false };
-    playerRef.current = { x: WIDTH / 2, y: HEIGHT / 2 };
+    const { w, h } = arenaSizeRef.current;
+    playerRef.current = { x: w / 2, y: h / 2 };
     enemiesRef.current = [];
     bulletsRef.current = [];
     buffsRef.current = [];
@@ -158,7 +163,7 @@ export default function HomePage() {
     syncBuffView();
   }, [syncBuffView]);
 
-  const endRun = useCallback((reason: "dead" | "manual") => {
+  const endRun = useCallback(() => {
     runningRef.current = false;
     const finalTime = Math.floor(timeRef.current);
     const finalKills = killRef.current;
@@ -170,7 +175,7 @@ export default function HomePage() {
     setLastRunScore(finalScore);
     setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
-    setStatus(reason === "dead" ? "Run failed: swarm caught you." : "Run ended.");
+    setStatus("Run failed: swarm caught you.");
   }, []);
 
   const startGame = useCallback(() => {
@@ -220,6 +225,15 @@ export default function HomePage() {
       last = now;
 
       if (runningRef.current) {
+        if (arenaRef.current) {
+          arenaSizeRef.current = {
+            w: Math.max(220, arenaRef.current.clientWidth),
+            h: Math.max(280, arenaRef.current.clientHeight)
+          };
+        }
+        const arenaW = arenaSizeRef.current.w;
+        const arenaH = arenaSizeRef.current.h;
+
         timeRef.current += dt * 1000;
         const currentWave = Math.floor(timeRef.current / 15000) + 1;
         setWave(currentWave);
@@ -239,11 +253,11 @@ export default function HomePage() {
         const speed = 170 * speedBoost;
         playerRef.current.x = Math.max(
           PLAYER_RADIUS,
-          Math.min(WIDTH - PLAYER_RADIUS, playerRef.current.x + nx * speed * dt)
+          Math.min(arenaW - PLAYER_RADIUS, playerRef.current.x + nx * speed * dt)
         );
         playerRef.current.y = Math.max(
           PLAYER_RADIUS,
-          Math.min(HEIGHT - PLAYER_RADIUS, playerRef.current.y + ny * speed * dt)
+          Math.min(arenaH - PLAYER_RADIUS, playerRef.current.y + ny * speed * dt)
         );
 
         spawnCdRef.current -= dt;
@@ -252,7 +266,7 @@ export default function HomePage() {
           spawnCdRef.current = baseInterval;
           const spawns = 1 + Math.floor((currentWave - 1) / 3);
           for (let i = 0; i < spawns; i += 1) {
-            const p = randomSpawnPoint();
+            const p = randomSpawnPoint(arenaW, arenaH);
             const elite = currentWave >= 4 && Math.random() < Math.min(0.45, 0.08 * currentWave);
             enemiesRef.current.push({
               id: idRef.current++,
@@ -270,8 +284,8 @@ export default function HomePage() {
           buffSpawnCdRef.current = 10 + Math.random() * 4;
           buffsRef.current.push({
             id: idRef.current++,
-            x: 36 + Math.random() * (WIDTH - 72),
-            y: 36 + Math.random() * (HEIGHT - 72),
+            x: 36 + Math.random() * Math.max(1, arenaW - 72),
+            y: 36 + Math.random() * Math.max(1, arenaH - 72),
             type: randomBuffType(),
             life: 10
           });
@@ -322,7 +336,7 @@ export default function HomePage() {
         }
 
         bulletsRef.current = bulletsRef.current.filter(
-          (b) => b.life > 0 && b.x > -24 && b.x < WIDTH + 24 && b.y > -24 && b.y < HEIGHT + 24
+          (b) => b.life > 0 && b.x > -24 && b.x < arenaW + 24 && b.y > -24 && b.y < arenaH + 24
         );
         buffsRef.current = buffsRef.current.filter((b) => b.life > 0);
 
@@ -373,7 +387,7 @@ export default function HomePage() {
               enemiesRef.current = enemiesRef.current.filter((e) => e.id !== hitEnemy.id);
               syncBuffView();
             } else {
-              endRun("dead");
+              endRun();
             }
           }
         }
@@ -520,7 +534,7 @@ export default function HomePage() {
   ].filter(Boolean) as string[];
 
   return (
-    <main className="page">
+    <main className={`page ${phase === "playing" ? "playing" : ""}`}>
       <section className="card">
         <header className="top">
           <p className="eyebrow">Base Mini App</p>
@@ -589,9 +603,6 @@ export default function HomePage() {
                   style={{ left: b.x - BUFF_RADIUS, top: b.y - BUFF_RADIUS, width: BUFF_RADIUS * 2, height: BUFF_RADIUS * 2 }}
                 />
               ))}
-            </div>
-            <div className="actions">
-              <button className="ghost" onClick={() => endRun("manual")}>End Run</button>
             </div>
           </>
         )}

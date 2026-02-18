@@ -28,6 +28,10 @@ body {
   padding: 14px;
 }
 
+.page.playing {
+  padding: 0;
+}
+
 .card {
   width: min(560px, 100%);
   border: 1px solid var(--line);
@@ -37,9 +41,23 @@ body {
   box-shadow: 0 24px 38px rgba(0, 0, 0, 0.45);
 }
 
+.page.playing .card {
+  width: 100vw;
+  height: 100svh;
+  border-radius: 0;
+  border: 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 0
+    calc(env(safe-area-inset-bottom, 0px) + 10px);
+  box-shadow: none;
+}
+
 .top {
   display: block;
   text-align: left;
+}
+
+.page.playing .top {
+  display: none;
 }
 
 .eyebrow {
@@ -110,6 +128,16 @@ h1 {
   background-color: #0c0c0c;
 }
 
+.page.playing .arena {
+  max-width: none;
+  width: 100vw;
+  height: calc(100svh - 130px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  margin: 0;
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+}
+
 .arena-touch {
   position: absolute;
   inset: 0;
@@ -178,6 +206,7 @@ h1 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 8px;
+  padding: 0 10px;
 }
 
 .hud-live span {
@@ -194,6 +223,7 @@ h1 {
   gap: 8px;
   margin-bottom: 10px;
   overflow-x: auto;
+  padding: 0 10px;
 }
 
 .buff-row span {
