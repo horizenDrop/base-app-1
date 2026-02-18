@@ -687,22 +687,24 @@ export default function HomePage() {
       `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}` +
       `&embeds[]=${encodeURIComponent(imageUrl)}` +
       `&embeds[]=${encodeURIComponent(GAME_LINK)}`;
+    let timedOutRedirect = false;
+    const forceRedirectTimer = setTimeout(() => {
+      timedOutRedirect = true;
+      window.location.assign(composeUrl);
+    }, 1000);
     try {
-      await Promise.race([
-        sdk.actions.composeCast({
-          text,
-          embeds: [imageUrl, GAME_LINK]
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("composeCast timeout")), 1400)
-        )
-      ]);
+      await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
+      clearTimeout(forceRedirectTimer);
+      return;
     } catch {
+      clearTimeout(forceRedirectTimer);
+      if (timedOutRedirect) return;
       try {
-        await sdk.actions.openUrl(composeUrl);
+        await sdk.actions.openUrl({ url: composeUrl });
+        return;
       } catch {
         try {
-          window.location.href = composeUrl;
+          window.location.assign(composeUrl);
         } catch {
           window.open(composeUrl, "_blank");
         }
