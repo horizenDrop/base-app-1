@@ -3,28 +3,65 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Address, createPublicClient, encodeFunctionData, http } from "viem";
-import { baseSepolia } from "viem/chains";
+import { base, baseSepolia } from "viem/chains";
 import { gameAbi } from "@/lib/gameAbi";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;
 };
 
-const CHAIN_ID_HEX = `0x${baseSepolia.id.toString(16)}`;
-const RPC_URL =
-  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org";
-const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
+const CHAIN_ID = Number(process.env.NEXT_PUBLIC_BASE_CHAIN_ID ?? base.id);
+const CHAIN = CHAIN_ID === baseSepolia.id ? baseSepolia : base;
+const CHAIN_ID_HEX = `0x${CHAIN.id.toString(16)}`;
+const RPC_URL = process.env.NEXT_PUBLIC_BASE_RPC_URL ?? CHAIN.rpcUrls.default.http[0];
+const PAYMASTER_URL =
+  process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS as
   | Address
   | undefined;
 
 const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(RPC_URL)
 });
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function toAbsoluteUrl(url: string) {
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (typeof window === "undefined") return url;
+  return new URL(url, window.location.origin).toString();
+}
+
+function extractChainCapabilities(
+  response: Record<string, any>,
+  account: Address,
+  chainIdHex: string,
+  chainIdDec: number
+) {
+  const accountCaps = response?.[account] ?? response;
+  return (
+    accountCaps?.[chainIdHex] ??
+    accountCaps?.[String(chainIdDec)] ??
+    accountCaps?.[`eip155:${chainIdDec}`]
+  );
+}
+
+async function pollBatchStatus(provider: EthereumProvider, batchId: string) {
+  for (let i = 0; i < 15; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const statusResult = await provider.request({
+      method: "wallet_getCallsStatus",
+      params: [batchId]
+    });
+    const code = statusResult?.status;
+    if (code === 100) continue;
+    if (code === 200) return;
+    throw new Error(`Batch failed with status ${String(code)}`);
+  }
+  throw new Error("Batch status timeout");
 }
 
 export default function HomePage() {
@@ -91,13 +128,20 @@ export default function HomePage() {
         method: "wallet_getCapabilities",
         params: [account]
       });
-      const chainCaps =
-        capabilitiesResponse?.[account]?.[CHAIN_ID_HEX] ??
-        capabilitiesResponse?.[CHAIN_ID_HEX];
-
+      const chainCaps = extractChainCapabilities(
+        capabilitiesResponse,
+        account,
+        CHAIN_ID_HEX,
+        CHAIN_ID
+      );
       if (!chainCaps?.paymasterService?.supported) {
-        throw new Error("Paymaster is not supported by this wallet on Base Sepolia.");
+        throw new Error(`Paymaster not supported on chain ${CHAIN_ID_HEX}`);
       }
+
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: CHAIN_ID_HEX }]
+      });
 
       const data = encodeFunctionData({
         abi: gameAbi,
@@ -105,56 +149,36 @@ export default function HomePage() {
         args: [BigInt(score)]
       });
 
-      const calls = [
-        {
-          to: CONTRACT_ADDRESS,
-          data,
-          value: "0x0"
-        }
-      ];
-
-      let sendResult: any;
-      try {
-        sendResult = await provider.request({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "2.0.0",
-              chainId: CHAIN_ID_HEX,
-              from: account,
-              calls,
-              capabilities: {
-                paymasterService: { url: PAYMASTER_URL }
-              }
+      const paymasterUrl = toAbsoluteUrl(PAYMASTER_URL);
+      const sendResult = await provider.request({
+        method: "wallet_sendCalls",
+        params: [
+          {
+            version: "2.0.0",
+            chainId: CHAIN_ID_HEX,
+            from: account,
+            atomicRequired: false,
+            calls: [{ to: CONTRACT_ADDRESS, data, value: "0x0" }],
+            capabilities: {
+              paymasterService: { url: paymasterUrl }
             }
-          ]
-        });
-      } catch {
-        sendResult = await provider.request({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "1.0",
-              chainId: CHAIN_ID_HEX,
-              from: account,
-              calls,
-              capabilities: {
-                paymasterService: { url: PAYMASTER_URL }
-              }
-            }
-          ]
-        });
-      }
+          }
+        ]
+      });
 
-      const callId = sendResult?.id;
-      if (!callId) {
-        setStatus("Transaction requested. Waiting in wallet.");
+      const batchId =
+        typeof sendResult === "string"
+          ? sendResult
+          : (sendResult?.batchId ?? sendResult?.id ?? null);
+      if (batchId) {
+        setStatus(`Submitted. Batch ${batchId}. Waiting for confirmation...`);
+        await pollBatchStatus(provider, batchId);
       } else {
-        setStatus(`Submitted (call id: ${callId}). Refreshing score...`);
+        setStatus("Submitted. Waiting for confirmation...");
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 3000));
       await refreshBestScore();
+      setStatus("Onchain check-in saved successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown submit error";
       setStatus(`Submit failed: ${message}`);
@@ -212,7 +236,9 @@ export default function HomePage() {
 
         <div className="meta">
           <p>Status: {status}</p>
+          <p>Chain: {CHAIN.name} ({CHAIN_ID_HEX})</p>
           <p>Contract: {CONTRACT_ADDRESS ?? "not configured"}</p>
+          <p>Paymaster URL: {toAbsoluteUrl(PAYMASTER_URL)}</p>
           <p>Best onchain: {bestOnchain !== null ? bestOnchain.toString() : "-"}</p>
         </div>
       </section>

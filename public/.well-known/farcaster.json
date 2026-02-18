@@ -7,13 +7,13 @@
   "frame": {
     "version": "1",
     "name": "Tap Score",
-    "iconUrl": "https://YOUR_DOMAIN/icon.svg",
-    "homeUrl": "https://YOUR_DOMAIN",
-    "imageUrl": "https://YOUR_DOMAIN/splash.svg",
+    "iconUrl": "https://base-app-1-bay.vercel.app/icon.svg",
+    "homeUrl": "https://base-app-1-bay.vercel.app",
+    "imageUrl": "https://base-app-1-bay.vercel.app/splash.svg",
     "buttonTitle": "Play Tap Score",
-    "splashImageUrl": "https://YOUR_DOMAIN/splash.svg",
+    "splashImageUrl": "https://base-app-1-bay.vercel.app/splash.svg",
     "splashBackgroundColor": "#0f62fe",
-    "webhookUrl": "https://YOUR_DOMAIN/api/webhook"
+    "webhookUrl": "https://base-app-1-bay.vercel.app/api/webhook"
   },
   "baseBuilder": {
     "allowedAddresses": ["0x0000000000000000000000000000000000000000"]
