@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Address, Hex, stringToHex } from "viem";
+import type { TouchEvent } from "react";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<any>;
@@ -110,6 +111,8 @@ export default function HomePage() {
   const graceRef = useRef(0);
   const tiltRef = useRef({ x: 0, y: 0 });
   const keyRef = useRef({ x: 0, y: 0 });
+  const touchRef = useRef({ x: 0, y: 0, active: false });
+  const arenaRef = useRef<HTMLDivElement | null>(null);
 
   const liveScore = Math.floor(timeMs / 1000) + kills * 5;
 
@@ -231,8 +234,11 @@ export default function HomePage() {
         setTimeMs(Math.floor(timeRef.current));
 
         const sensor = sensorEnabled ? tiltRef.current : { x: 0, y: 0 };
-        const moveX = Math.abs(sensor.x) > 0.05 ? sensor.x : keyRef.current.x;
-        const moveY = Math.abs(sensor.y) > 0.05 ? sensor.y : keyRef.current.y;
+        const touch = touchRef.current;
+        const moveX =
+          touch.active ? touch.x : Math.abs(sensor.x) > 0.05 ? sensor.x : keyRef.current.x;
+        const moveY =
+          touch.active ? touch.y : Math.abs(sensor.y) > 0.05 ? sensor.y : keyRef.current.y;
         const moveLen = Math.hypot(moveX, moveY) || 1;
         const nx = moveX / moveLen;
         const ny = moveY / moveLen;
@@ -424,6 +430,50 @@ export default function HomePage() {
     sdk.actions.ready().catch(() => null);
   }, []);
 
+  const updateTouchMove = useCallback((clientX: number, clientY: number) => {
+    const arena = arenaRef.current;
+    if (!arena) return;
+    const rect = arena.getBoundingClientRect();
+    const px = playerRef.current.x;
+    const py = playerRef.current.y;
+    const targetX = clientX - rect.left;
+    const targetY = clientY - rect.top;
+    const dx = targetX - px;
+    const dy = targetY - py;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) {
+      touchRef.current = { x: 0, y: 0, active: true };
+      return;
+    }
+    touchRef.current = {
+      x: Math.max(-1, Math.min(1, dx / len)),
+      y: Math.max(-1, Math.min(1, dy / len)),
+      active: true
+    };
+  }, []);
+
+  const onArenaTouchStart = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const t = e.touches[0];
+      if (!t) return;
+      updateTouchMove(t.clientX, t.clientY);
+    },
+    [updateTouchMove]
+  );
+
+  const onArenaTouchMove = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const t = e.touches[0];
+      if (!t) return;
+      updateTouchMove(t.clientX, t.clientY);
+    },
+    [updateTouchMove]
+  );
+
+  const onArenaTouchEnd = useCallback(() => {
+    touchRef.current = { x: 0, y: 0, active: false };
+  }, []);
+
   return (
     <main className="page">
       <section className="card">
@@ -473,6 +523,13 @@ export default function HomePage() {
             </div>
             <div className="arena">
               <div
+                ref={arenaRef}
+                className="arena-touch"
+                onTouchStart={onArenaTouchStart}
+                onTouchMove={onArenaTouchMove}
+                onTouchEnd={onArenaTouchEnd}
+              />
+              <div
                 className="player"
                 style={{ left: player.x - PLAYER_RADIUS, top: player.y - PLAYER_RADIUS }}
               />
@@ -512,4 +569,3 @@ export default function HomePage() {
     </main>
   );
 }
-

@@ -103,11 +103,19 @@ h1 {
   background-color: #0c0c0c;
 }
 
+.arena-touch {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
 .player,
 .enemy,
 .bullet {
   position: absolute;
   transform: translateZ(0);
+  z-index: 10;
+  pointer-events: none;
 }
 
 .player {
