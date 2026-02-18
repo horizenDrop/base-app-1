@@ -39,7 +39,6 @@ type LeaderboardEntry = {
 
 const CHAIN_ID_HEX = "0x2105";
 const WALLET_KEY = "pragma_wallet";
-const GAME_LINK = "https://base-app-1-bay.vercel.app/";
 
 const DEFAULT_ARENA_WIDTH = 320;
 const DEFAULT_ARENA_HEIGHT = 440;
@@ -672,24 +671,6 @@ export default function HomePage() {
     }
   }, [account, lastRunScore, provider, submitLeaderboardRun]);
 
-  const shareResults = useCallback(async () => {
-    if (typeof window === "undefined") return;
-    const imageUrl = `${window.location.origin}/api/share-image?level=${encodeURIComponent(
-      String(level)
-    )}&score=${encodeURIComponent(String(lastRunScore))}&verified=${encodeURIComponent(
-      String(bestVerifiedRun)
-    )}`;
-    const text =
-      `Pragma run results\\n` +
-      `Level: ${level} | Score: ${lastRunScore} | Verified: ${bestVerifiedRun}\\n\\n` +
-      `join in the game ${GAME_LINK} to show me your skill`;
-    try {
-      await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
-    } catch {
-      setStatus("Share works only inside Base App Mini App composer.");
-    }
-  }, [bestVerifiedRun, lastRunScore, level]);
-
   const updateTouchMove = useCallback((clientX: number, clientY: number) => {
     const arena = arenaRef.current;
     if (!arena) return;
@@ -776,9 +757,6 @@ export default function HomePage() {
                   <button className="primary big" onClick={startGame}>Start Run</button>
                   <button className="primary big checkin-btn" onClick={submitOnchain} disabled={submitting}>
                     {submitting ? "Submitting..." : "Submit Onchain Score"}
-                  </button>
-                  <button className="ghost big" onClick={shareResults}>
-                    Share Results
                   </button>
                 </div>
               </>
