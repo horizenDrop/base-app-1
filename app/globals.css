@@ -122,6 +122,45 @@ h1 {
   gap: 10px;
 }
 
+.leaderboard {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #141414;
+}
+
+.lb-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.lb-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 6px 0;
+  border-top: 1px solid #202020;
+}
+
+.lb-row:first-of-type {
+  border-top: 0;
+}
+
+.lb-row.me {
+  color: #fff;
+}
+
 .arena {
   position: relative;
   width: 100%;

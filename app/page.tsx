@@ -13,11 +13,19 @@ type Enemy = { id: number; x: number; y: number; r: number; speed: number; hp: n
 type Bullet = { id: number; x: number; y: number; vx: number; vy: number; life: number };
 type BuffType = "haste" | "rapid" | "shield" | "blades";
 type BuffPickup = { id: number; x: number; y: number; type: BuffType; life: number };
-type Phase = "menu" | "playing" | "gameover";
 type SwordView = { id: number; x: number; y: number };
+type Phase = "menu" | "playing" | "gameover";
+type LeaderboardEntry = {
+  address: string;
+  bestScore: number;
+  lastScore: number;
+  totalRuns: number;
+  updatedAt: number;
+};
 
 const CHAIN_ID_HEX = "0x2105";
 const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? "/api/paymaster";
+const WALLET_KEY = "pragma_wallet";
 
 const DEFAULT_ARENA_WIDTH = 320;
 const DEFAULT_ARENA_HEIGHT = 440;
@@ -35,14 +43,16 @@ function toAbsoluteUrl(url: string) {
   return new URL(url, window.location.origin).toString();
 }
 
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 function buildCheckinData(score: number): Hex {
   return stringToHex(JSON.stringify({ app: "pragma", kind: "checkin", score, ts: Date.now() }));
 }
 
 function dist(aX: number, aY: number, bX: number, bY: number) {
-  const dx = aX - bX;
-  const dy = aY - bY;
-  return Math.hypot(dx, dy);
+  return Math.hypot(aX - bX, aY - bY);
 }
 
 function randomSpawnPoint(width: number, height: number) {
@@ -87,7 +97,8 @@ function extractTxHash(statusResult: any): string | null {
 export default function HomePage() {
   const [phase, setPhase] = useState<Phase>("menu");
   const [account, setAccount] = useState<Address | null>(null);
-  const [status, setStatus] = useState("Tap Start and drag on arena to move.");
+  const [walletChecked, setWalletChecked] = useState(false);
+  const [status, setStatus] = useState("Connect wallet to play.");
   const [submitting, setSubmitting] = useState(false);
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
@@ -96,6 +107,7 @@ export default function HomePage() {
   const [wave, setWave] = useState(1);
   const [bestRun, setBestRun] = useState(0);
   const [lastRunScore, setLastRunScore] = useState(0);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
   const [player, setPlayer] = useState({
     x: DEFAULT_ARENA_WIDTH / 2,
@@ -133,10 +145,27 @@ export default function HomePage() {
   const graceRef = useRef(1.2);
   const hasteRef = useRef(0);
   const rapidRef = useRef(0);
-  const shieldRef = useRef(0);
   const bladesRef = useRef(0);
+  const shieldRef = useRef(0);
 
   const liveScore = Math.floor(timeMs / 1000) + kills * 6 + (wave - 1) * 10;
+
+  const loadLeaderboard = useCallback(async (address?: string) => {
+    const url = address
+      ? `/api/leaderboard?address=${encodeURIComponent(address)}`
+      : "/api/leaderboard";
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return;
+    const json = (await res.json()) as {
+      leaderboard: LeaderboardEntry[];
+      profile?: LeaderboardEntry | null;
+    };
+    setLeaderboard(json.leaderboard ?? []);
+    if (json.profile) {
+      setBestRun(json.profile.bestScore);
+      setLastRunScore(json.profile.lastScore);
+    }
+  }, []);
 
   const syncBuffView = useCallback(() => {
     setHasteLeftMs(Math.max(0, Math.floor(hasteRef.current * 1000)));
@@ -144,6 +173,27 @@ export default function HomePage() {
     setBladesLeftMs(Math.max(0, Math.floor(bladesRef.current * 1000)));
     setShieldCharges(shieldRef.current);
   }, []);
+
+  const submitLeaderboardRun = useCallback(
+    async (addr: string, score: number) => {
+      const res = await fetch("/api/leaderboard", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: addr, score })
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        leaderboard: LeaderboardEntry[];
+        profile: LeaderboardEntry;
+      };
+      setLeaderboard(json.leaderboard ?? []);
+      if (json.profile) {
+        setBestRun(json.profile.bestScore);
+        setLastRunScore(json.profile.lastScore);
+      }
+    },
+    []
+  );
 
   const resetGame = useCallback(() => {
     runningRef.current = false;
@@ -161,8 +211,8 @@ export default function HomePage() {
     graceRef.current = 1.2;
     hasteRef.current = 0;
     rapidRef.current = 0;
-    shieldRef.current = 0;
     bladesRef.current = 0;
+    shieldRef.current = 0;
     setPlayer(playerRef.current);
     setEnemiesView([]);
     setBulletsView([]);
@@ -187,14 +237,91 @@ export default function HomePage() {
     setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
     setStatus("Run failed: swarm caught you.");
-  }, []);
+    if (account) void submitLeaderboardRun(account, finalScore);
+  }, [account, submitLeaderboardRun]);
 
   const startGame = useCallback(() => {
+    if (!account) {
+      setStatus("Connect wallet to start.");
+      return;
+    }
     resetGame();
     runningRef.current = true;
     setPhase("playing");
     setStatus("Run started.");
-  }, [resetGame]);
+  }, [account, resetGame]);
+
+  const connect = useCallback(async () => {
+    if (!provider) {
+      setStatus("No wallet provider found. Open inside Base App.");
+      return;
+    }
+    const accounts = (await provider.request({
+      method: "eth_requestAccounts"
+    })) as Address[];
+    if (!accounts.length) {
+      setStatus("Wallet connect failed.");
+      return;
+    }
+    const addr = accounts[0].toLowerCase() as Address;
+    setAccount(addr);
+    localStorage.setItem(WALLET_KEY, addr);
+    await loadLeaderboard(addr);
+    setStatus("Wallet connected.");
+  }, [loadLeaderboard, provider]);
+
+  useEffect(() => {
+    sdk.actions.ready().catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    void loadLeaderboard();
+  }, [loadLeaderboard]);
+
+  useEffect(() => {
+    const init = async () => {
+      if (!provider) {
+        setWalletChecked(true);
+        return;
+      }
+      try {
+        const accounts = (await provider.request({
+          method: "eth_accounts"
+        })) as Address[];
+        if (accounts.length) {
+          const addr = accounts[0].toLowerCase() as Address;
+          setAccount(addr);
+          localStorage.setItem(WALLET_KEY, addr);
+          await loadLeaderboard(addr);
+          setStatus("Wallet restored.");
+        } else {
+          const saved = localStorage.getItem(WALLET_KEY);
+          if (saved) setStatus("Reconnect wallet to continue progress.");
+        }
+      } finally {
+        setWalletChecked(true);
+      }
+    };
+    void init();
+  }, [loadLeaderboard, provider]);
+
+  useEffect(() => {
+    if (!provider) return;
+    const anyProvider = provider as any;
+    const onAccountsChanged = (accounts: string[]) => {
+      if (!accounts?.length) {
+        setAccount(null);
+        setStatus("Wallet disconnected.");
+        return;
+      }
+      const addr = accounts[0].toLowerCase() as Address;
+      setAccount(addr);
+      localStorage.setItem(WALLET_KEY, addr);
+      void loadLeaderboard(addr);
+    };
+    anyProvider.on?.("accountsChanged", onAccountsChanged);
+    return () => anyProvider.removeListener?.("accountsChanged", onAccountsChanged);
+  }, [loadLeaderboard, provider]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -204,22 +331,8 @@ export default function HomePage() {
       if (e.key === "ArrowDown" || e.key.toLowerCase() === "s") keyRef.current.y = 1;
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (
-        e.key === "ArrowLeft" ||
-        e.key === "ArrowRight" ||
-        e.key.toLowerCase() === "a" ||
-        e.key.toLowerCase() === "d"
-      ) {
-        keyRef.current.x = 0;
-      }
-      if (
-        e.key === "ArrowUp" ||
-        e.key === "ArrowDown" ||
-        e.key.toLowerCase() === "w" ||
-        e.key.toLowerCase() === "s"
-      ) {
-        keyRef.current.y = 0;
-      }
+      if ("arrowleft arrowright a d".split(" ").includes(e.key.toLowerCase())) keyRef.current.x = 0;
+      if ("arrowup arrowdown w s".split(" ").includes(e.key.toLowerCase())) keyRef.current.y = 0;
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -234,8 +347,7 @@ export default function HomePage() {
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.04);
       last = now;
-
-      if (runningRef.current) {
+      if (runningRef.current && account) {
         if (arenaRef.current) {
           arenaSizeRef.current = {
             w: Math.max(220, arenaRef.current.clientWidth),
@@ -255,27 +367,21 @@ export default function HomePage() {
         bladesRef.current = Math.max(0, bladesRef.current - dt);
         syncBuffView();
 
-        const touch = touchRef.current;
-        const moveX = touch.active ? touch.x : keyRef.current.x;
-        const moveY = touch.active ? touch.y : keyRef.current.y;
-        const moveLen = Math.hypot(moveX, moveY) || 1;
-        const nx = moveX / moveLen;
-        const ny = moveY / moveLen;
-        const speedBoost = hasteRef.current > 0 ? 1.45 : 1;
-        const speed = 170 * speedBoost;
+        const move = touchRef.current.active ? touchRef.current : keyRef.current;
+        const moveLen = Math.hypot(move.x, move.y) || 1;
+        const speed = 170 * (hasteRef.current > 0 ? 1.45 : 1);
         playerRef.current.x = Math.max(
           PLAYER_RADIUS,
-          Math.min(arenaW - PLAYER_RADIUS, playerRef.current.x + nx * speed * dt)
+          Math.min(arenaW - PLAYER_RADIUS, playerRef.current.x + (move.x / moveLen) * speed * dt)
         );
         playerRef.current.y = Math.max(
           PLAYER_RADIUS,
-          Math.min(arenaH - PLAYER_RADIUS, playerRef.current.y + ny * speed * dt)
+          Math.min(arenaH - PLAYER_RADIUS, playerRef.current.y + (move.y / moveLen) * speed * dt)
         );
 
         spawnCdRef.current -= dt;
         if (spawnCdRef.current <= 0) {
-          const baseInterval = Math.max(0.2, 1 - (currentWave - 1) * 0.08);
-          spawnCdRef.current = baseInterval;
+          spawnCdRef.current = Math.max(0.2, 1 - (currentWave - 1) * 0.08);
           const spawns = 1 + Math.floor((currentWave - 1) / 3);
           for (let i = 0; i < spawns; i += 1) {
             const p = randomSpawnPoint(arenaW, arenaH);
@@ -345,15 +451,14 @@ export default function HomePage() {
           b.y += b.vy * dt;
           b.life -= dt;
         }
+
         for (const buff of buffsRef.current) {
           buff.life -= dt;
           const d = dist(buff.x, buff.y, playerRef.current.x, playerRef.current.y);
           if (d < BUFF_MAGNET_RADIUS) {
             const strength = 0.35 + (1 - d / BUFF_MAGNET_RADIUS) * 1.45;
-            const vx = (playerRef.current.x - buff.x) / (d || 1);
-            const vy = (playerRef.current.y - buff.y) / (d || 1);
-            buff.x += vx * BUFF_MAGNET_SPEED * strength * dt;
-            buff.y += vy * BUFF_MAGNET_SPEED * strength * dt;
+            buff.x += ((playerRef.current.x - buff.x) / (d || 1)) * BUFF_MAGNET_SPEED * strength * dt;
+            buff.y += ((playerRef.current.y - buff.y) / (d || 1)) * BUFF_MAGNET_SPEED * strength * dt;
           }
         }
 
@@ -364,6 +469,7 @@ export default function HomePage() {
 
         const removeEnemy = new Set<number>();
         const removeBullet = new Set<number>();
+
         for (const b of bulletsRef.current) {
           for (const e of enemiesRef.current) {
             if (removeEnemy.has(e.id)) continue;
@@ -377,18 +483,13 @@ export default function HomePage() {
             }
           }
         }
-        if (removeEnemy.size > 0 || removeBullet.size > 0) {
-          enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
-          bulletsRef.current = bulletsRef.current.filter((b) => !removeBullet.has(b.id));
-          setKills(killRef.current);
-        }
 
         if (bladesRef.current > 0) {
+          const swords: SwordView[] = [];
           const bladesCount = 3;
           const bladeRadius = 38;
           const bladeHitRadius = 11;
           const angleBase = timeRef.current * 0.012;
-          const swords: SwordView[] = [];
           for (let i = 0; i < bladesCount; i += 1) {
             const angle = angleBase + (Math.PI * 2 * i) / bladesCount;
             const sx = playerRef.current.x + Math.cos(angle) * bladeRadius;
@@ -407,12 +508,14 @@ export default function HomePage() {
             }
           }
           setSwordsView(swords);
-          if (removeEnemy.size > 0) {
-            enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
-            setKills(killRef.current);
-          }
         } else {
           setSwordsView([]);
+        }
+
+        if (removeEnemy.size > 0 || removeBullet.size > 0) {
+          enemiesRef.current = enemiesRef.current.filter((e) => !removeEnemy.has(e.id));
+          bulletsRef.current = bulletsRef.current.filter((b) => !removeBullet.has(b.id));
+          setKills(killRef.current);
         }
 
         for (const buff of buffsRef.current) {
@@ -456,23 +559,7 @@ export default function HomePage() {
     };
     const id = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(id);
-  }, [endRun, syncBuffView]);
-
-  const connect = useCallback(async () => {
-    if (!provider) {
-      setStatus("No wallet provider found. Open inside Base App.");
-      return;
-    }
-    const accounts = (await provider.request({
-      method: "eth_requestAccounts"
-    })) as Address[];
-    if (!accounts.length) {
-      setStatus("Wallet connected, but no account returned.");
-      return;
-    }
-    setAccount(accounts[0]);
-    setStatus("Wallet connected.");
-  }, [provider]);
+  }, [account, endRun, syncBuffView]);
 
   const submitGasless = useCallback(async () => {
     if (!provider || !account) {
@@ -536,50 +623,41 @@ export default function HomePage() {
     }
   }, [account, lastRunScore, provider]);
 
-  useEffect(() => {
-    sdk.actions.ready().catch(() => null);
-  }, []);
-
   const updateTouchMove = useCallback((clientX: number, clientY: number) => {
     const arena = arenaRef.current;
     if (!arena) return;
     const rect = arena.getBoundingClientRect();
-    const px = playerRef.current.x;
-    const py = playerRef.current.y;
-    const tx = clientX - rect.left;
-    const ty = clientY - rect.top;
-    const dx = tx - px;
-    const dy = ty - py;
+    const dx = clientX - rect.left - playerRef.current.x;
+    const dy = clientY - rect.top - playerRef.current.y;
     const len = Math.hypot(dx, dy);
-    if (len < 8) {
-      touchRef.current = { x: 0, y: 0, active: true };
-      return;
-    }
-    touchRef.current = {
-      x: Math.max(-1, Math.min(1, dx / len)),
-      y: Math.max(-1, Math.min(1, dy / len)),
-      active: true
-    };
+    touchRef.current =
+      len < 8
+        ? { x: 0, y: 0, active: true }
+        : {
+            x: Math.max(-1, Math.min(1, dx / len)),
+            y: Math.max(-1, Math.min(1, dy / len)),
+            active: true
+          };
   }, []);
 
   const onArenaTouchStart = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
       e.preventDefault();
       const t = e.touches[0];
-      if (!t) return;
-      updateTouchMove(t.clientX, t.clientY);
+      if (t) updateTouchMove(t.clientX, t.clientY);
     },
     [updateTouchMove]
   );
+
   const onArenaTouchMove = useCallback(
     (e: TouchEvent<HTMLDivElement>) => {
       e.preventDefault();
       const t = e.touches[0];
-      if (!t) return;
-      updateTouchMove(t.clientX, t.clientY);
+      if (t) updateTouchMove(t.clientX, t.clientY);
     },
     [updateTouchMove]
   );
+
   const onArenaTouchEnd = useCallback(() => {
     touchRef.current = { x: 0, y: 0, active: false };
   }, []);
@@ -587,13 +665,11 @@ export default function HomePage() {
   useEffect(() => {
     const arena = arenaRef.current;
     if (!arena) return;
-
     const blockDefault = (event: Event) => event.preventDefault();
     arena.addEventListener("contextmenu", blockDefault);
     arena.addEventListener("selectstart", blockDefault);
     arena.addEventListener("touchstart", blockDefault, { passive: false });
     arena.addEventListener("touchmove", blockDefault, { passive: false });
-
     return () => {
       arena.removeEventListener("contextmenu", blockDefault);
       arena.removeEventListener("selectstart", blockDefault);
@@ -619,21 +695,45 @@ export default function HomePage() {
 
         {phase !== "playing" && (
           <>
-            <p className="muted">Drag finger on arena to steer. Survive longer waves and stack buffs.</p>
-            <div className="menu-stats">
-              <div className="menu-stat"><span>Best</span><strong>{bestRun}</strong></div>
-              <div className="menu-stat"><span>Last</span><strong>{lastRunScore}</strong></div>
-              <div className="menu-stat"><span>Wallet</span><strong>{account ? "Connected" : "Offline"}</strong></div>
-              <div className="menu-stat"><span>Last Tx</span><strong>{lastTxHash ? "Yes" : "No"}</strong></div>
-            </div>
-            <div className="menu-actions">
-              <button className="primary big" onClick={startGame}>Start Run</button>
-              <button className="ghost big" onClick={connect} disabled={!!account}>
-                {account ? "Wallet Connected" : "Connect Wallet"}
-              </button>
-              <button className="primary big checkin-btn" onClick={submitGasless} disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit Gasless Check-in"}
-              </button>
+            {!walletChecked || !account ? (
+              <div className="menu-actions">
+                <button className="primary big" onClick={connect}>
+                  Connect Wallet To Play
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="muted">Wallet: {shortAddress(account)}. Progress is tied to this address.</p>
+                <div className="menu-stats">
+                  <div className="menu-stat"><span>Best</span><strong>{bestRun}</strong></div>
+                  <div className="menu-stat"><span>Last</span><strong>{lastRunScore}</strong></div>
+                  <div className="menu-stat"><span>Wave</span><strong>{wave}</strong></div>
+                  <div className="menu-stat"><span>Last Tx</span><strong>{lastTxHash ? "Yes" : "No"}</strong></div>
+                </div>
+                <div className="menu-actions">
+                  <button className="primary big" onClick={startGame}>Start Run</button>
+                  <button className="primary big checkin-btn" onClick={submitGasless} disabled={submitting}>
+                    {submitting ? "Submitting..." : "Submit Gasless Check-in"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            <div className="leaderboard">
+              <p className="lb-title">Leaderboard</p>
+              {leaderboard.length === 0 ? (
+                <p className="lb-empty">No entries yet.</p>
+              ) : (
+                leaderboard.slice(0, 10).map((entry, idx) => (
+                  <div
+                    key={`${entry.address}-${entry.updatedAt}`}
+                    className={`lb-row ${account?.toLowerCase() === entry.address.toLowerCase() ? "me" : ""}`}
+                  >
+                    <span>{idx + 1}. {shortAddress(entry.address)}</span>
+                    <strong>{entry.bestScore}</strong>
+                  </div>
+                ))
+              )}
             </div>
           </>
         )}
@@ -675,11 +775,7 @@ export default function HomePage() {
                 />
               ))}
               {swordsView.map((s) => (
-                <div
-                  key={s.id}
-                  className="sword"
-                  style={{ left: s.x - 5, top: s.y - 14 }}
-                />
+                <div key={s.id} className="sword" style={{ left: s.x - 5, top: s.y - 14 }} />
               ))}
               {buffsView.map((b) => (
                 <div
@@ -704,3 +800,4 @@ export default function HomePage() {
     </main>
   );
 }
+
