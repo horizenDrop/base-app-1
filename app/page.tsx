@@ -36,7 +36,7 @@ const BULLET_RADIUS = 3;
 const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
-const WAVE_MS = 8000;
+const WAVE_MS = 4000;
 
 function toAbsoluteUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
