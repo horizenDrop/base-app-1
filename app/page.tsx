@@ -49,6 +49,7 @@ const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
 const WAVE_MS = 4000;
+const BUFF_DROP_CHANCE = 0.2;
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -432,7 +433,7 @@ export default function HomePage() {
 
         buffSpawnCdRef.current -= dt;
         if (buffSpawnCdRef.current <= 0) {
-          buffSpawnCdRef.current = 10 + Math.random() * 4;
+          buffSpawnCdRef.current = 5 + Math.random() * 2.5;
           buffsRef.current.push({
             id: idRef.current++,
             x: 36 + Math.random() * Math.max(1, arenaW - 72),
@@ -517,6 +518,15 @@ export default function HomePage() {
               if (e.hp <= 0) {
                 removeEnemy.add(e.id);
                 killRef.current += 1;
+                if (Math.random() < BUFF_DROP_CHANCE) {
+                  buffsRef.current.push({
+                    id: idRef.current++,
+                    x: e.x,
+                    y: e.y,
+                    type: randomBuffType(),
+                    life: 10
+                  });
+                }
               }
             }
           }
@@ -541,6 +551,15 @@ export default function HomePage() {
                 if (e.hp <= 0) {
                   removeEnemy.add(e.id);
                   killRef.current += 1;
+                  if (Math.random() < BUFF_DROP_CHANCE) {
+                    buffsRef.current.push({
+                      id: idRef.current++,
+                      x: e.x,
+                      y: e.y,
+                      type: randomBuffType(),
+                      life: 10
+                    });
+                  }
                 }
               }
             }
