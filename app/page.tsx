@@ -18,6 +18,7 @@ type Phase = "menu" | "playing" | "gameover";
 type LeaderboardEntry = {
   address: string;
   bestScore: number;
+  verifiedBestScore: number;
   lastScore: number;
   totalRuns: number;
   updatedAt: number;
@@ -106,6 +107,7 @@ export default function HomePage() {
   const [kills, setKills] = useState(0);
   const [wave, setWave] = useState(1);
   const [bestRun, setBestRun] = useState(0);
+  const [bestVerifiedRun, setBestVerifiedRun] = useState(0);
   const [lastRunScore, setLastRunScore] = useState(0);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
@@ -163,6 +165,7 @@ export default function HomePage() {
     setLeaderboard(json.leaderboard ?? []);
     if (json.profile) {
       setBestRun(json.profile.bestScore);
+      setBestVerifiedRun(json.profile.verifiedBestScore ?? 0);
       setLastRunScore(json.profile.lastScore);
     }
   }, []);
@@ -175,11 +178,11 @@ export default function HomePage() {
   }, []);
 
   const submitLeaderboardRun = useCallback(
-    async (addr: string, score: number) => {
+    async (addr: string, score: number, verified = false) => {
       const res = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address: addr, score })
+        body: JSON.stringify({ address: addr, score, verified })
       });
       if (!res.ok) return;
       const json = (await res.json()) as {
@@ -189,6 +192,7 @@ export default function HomePage() {
       setLeaderboard(json.leaderboard ?? []);
       if (json.profile) {
         setBestRun(json.profile.bestScore);
+        setBestVerifiedRun(json.profile.verifiedBestScore ?? 0);
         setLastRunScore(json.profile.lastScore);
       }
     },
@@ -237,7 +241,7 @@ export default function HomePage() {
     setBestRun((v) => Math.max(v, finalScore));
     setPhase("gameover");
     setStatus("Run failed: swarm caught you.");
-    if (account) void submitLeaderboardRun(account, finalScore);
+    if (account) void submitLeaderboardRun(account, finalScore, false);
   }, [account, submitLeaderboardRun]);
 
   const startGame = useCallback(() => {
@@ -614,6 +618,7 @@ export default function HomePage() {
         const txHash = extractTxHash(statusResult);
         if (txHash) setLastTxHash(txHash);
       }
+      await submitLeaderboardRun(account, lastRunScore, true);
       setStatus("Check-in saved onchain.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -621,7 +626,7 @@ export default function HomePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [account, lastRunScore, provider]);
+  }, [account, lastRunScore, provider, submitLeaderboardRun]);
 
   const updateTouchMove = useCallback((clientX: number, clientY: number) => {
     const arena = arenaRef.current;
@@ -706,9 +711,9 @@ export default function HomePage() {
                 <p className="muted">Wallet: {shortAddress(account)}. Progress is tied to this address.</p>
                 <div className="menu-stats">
                   <div className="menu-stat"><span>Best</span><strong>{bestRun}</strong></div>
+                  <div className="menu-stat"><span>Verified</span><strong>{bestVerifiedRun}</strong></div>
                   <div className="menu-stat"><span>Last</span><strong>{lastRunScore}</strong></div>
                   <div className="menu-stat"><span>Wave</span><strong>{wave}</strong></div>
-                  <div className="menu-stat"><span>Last Tx</span><strong>{lastTxHash ? "Yes" : "No"}</strong></div>
                 </div>
                 <div className="menu-actions">
                   <button className="primary big" onClick={startGame}>Start Run</button>
@@ -730,7 +735,10 @@ export default function HomePage() {
                     className={`lb-row ${account?.toLowerCase() === entry.address.toLowerCase() ? "me" : ""}`}
                   >
                     <span>{idx + 1}. {shortAddress(entry.address)}</span>
-                    <strong>{entry.bestScore}</strong>
+                    <strong className="lb-score">
+                      <b className="verified">{entry.verifiedBestScore}</b>
+                      <i>{entry.bestScore}</i>
+                    </strong>
                   </div>
                 ))
               )}

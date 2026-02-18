@@ -161,6 +161,27 @@ h1 {
   color: #fff;
 }
 
+.lb-score {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.lb-score .verified {
+  color: #fff;
+  font-size: 14px;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: #0f0f0f;
+}
+
+.lb-score i {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .arena {
   position: relative;
   width: 100%;
