@@ -49,7 +49,11 @@ const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
 const WAVE_MS = 4000;
-const BUFF_DROP_CHANCE = 0.2;
+const BUFF_DROP_CHANCE = 0.08;
+const MAX_SHIELD_CHARGES = 3;
+const MAX_HASTE_SECONDS = 8;
+const MAX_RAPID_SECONDS = 8;
+const MAX_BLADES_SECONDS = 7;
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -433,7 +437,7 @@ export default function HomePage() {
 
         buffSpawnCdRef.current -= dt;
         if (buffSpawnCdRef.current <= 0) {
-          buffSpawnCdRef.current = 5 + Math.random() * 2.5;
+          buffSpawnCdRef.current = 7 + Math.random() * 3;
           buffsRef.current.push({
             id: idRef.current++,
             x: 36 + Math.random() * Math.max(1, arenaW - 72),
@@ -579,10 +583,18 @@ export default function HomePage() {
 
         for (const buff of buffsRef.current) {
           if (dist(buff.x, buff.y, playerRef.current.x, playerRef.current.y) < BUFF_RADIUS + PLAYER_RADIUS) {
-            if (buff.type === "haste") hasteRef.current = 8;
-            if (buff.type === "rapid") rapidRef.current = 8;
-            if (buff.type === "shield") shieldRef.current += 1;
-            if (buff.type === "blades") bladesRef.current = 10;
+            if (buff.type === "haste") {
+              hasteRef.current = Math.min(MAX_HASTE_SECONDS, hasteRef.current + 2.2);
+            }
+            if (buff.type === "rapid") {
+              rapidRef.current = Math.min(MAX_RAPID_SECONDS, rapidRef.current + 2.2);
+            }
+            if (buff.type === "shield") {
+              shieldRef.current = Math.min(MAX_SHIELD_CHARGES, shieldRef.current + 1);
+            }
+            if (buff.type === "blades") {
+              bladesRef.current = Math.min(MAX_BLADES_SECONDS, bladesRef.current + 2);
+            }
             buffsRef.current = buffsRef.current.filter((v) => v.id !== buff.id);
             syncBuffView();
           }
