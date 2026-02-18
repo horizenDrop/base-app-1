@@ -684,35 +684,9 @@ export default function HomePage() {
       `Level: ${level} | Score: ${lastRunScore} | Verified: ${bestVerifiedRun}\\n\\n` +
       `join in the game ${GAME_LINK} to show me your skill`;
     try {
-      const isMiniApp = await sdk.isInMiniApp();
-      if (isMiniApp) {
-        await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
-        return;
-      }
+      await sdk.actions.composeCast({ text, embeds: [imageUrl, GAME_LINK] });
     } catch {
-      // ignore and fallback to native share/copy below
-    }
-    try {
-      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-        await navigator.share({
-          title: "Pragma",
-          text,
-          url: GAME_LINK
-        });
-        return;
-      }
-    } catch {
-      // ignore and fallback to clipboard below
-    }
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${text}\\n${imageUrl}`);
-        setStatus("Results copied. Paste in Base App post composer.");
-      } else {
-        setStatus("Share unavailable in this session.");
-      }
-    } catch {
-      setStatus("Share unavailable in this session.");
+      setStatus("Share works only inside Base App Mini App composer.");
     }
   }, [bestVerifiedRun, lastRunScore, level]);
 
