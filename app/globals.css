@@ -38,10 +38,8 @@ body {
 }
 
 .top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 8px;
+  display: block;
+  text-align: left;
 }
 
 .eyebrow {
@@ -92,12 +90,8 @@ h1 {
 
 .menu-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
-}
-
-.menu-actions .primary:last-child {
-  grid-column: 1 / -1;
 }
 
 .arena {
@@ -248,6 +242,10 @@ button:disabled {
   font-weight: 600;
 }
 
+.checkin-btn {
+  width: 100%;
+}
+
 .meta {
   margin-top: 12px;
   padding-top: 10px;
@@ -260,4 +258,3 @@ button:disabled {
   margin: 4px 0;
   overflow-wrap: anywhere;
 }
-

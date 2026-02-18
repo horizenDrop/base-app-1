@@ -541,8 +541,8 @@ export default function HomePage() {
               <button className="ghost big" onClick={connect} disabled={!!account}>
                 {account ? "Wallet Connected" : "Connect Wallet"}
               </button>
-              <button className="primary" onClick={submitGasless} disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit Last Run"}
+              <button className="primary big checkin-btn" onClick={submitGasless} disabled={submitting}>
+                {submitting ? "Submitting..." : "Submit Gasless Check-in"}
               </button>
             </div>
           </>
@@ -607,4 +607,3 @@ export default function HomePage() {
     </main>
   );
 }
-
