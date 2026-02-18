@@ -19,7 +19,7 @@ type Enemy = {
   bladeCd: number;
 };
 type Bullet = { id: number; x: number; y: number; vx: number; vy: number; life: number };
-type BuffType = "haste" | "rapid" | "shield" | "blades";
+type BuffType = "haste" | "rapid" | "shield" | "blades" | "wipe";
 type BuffPickup = { id: number; x: number; y: number; type: BuffType; life: number };
 type SwordView = { id: number; x: number; y: number };
 type Phase = "menu" | "playing" | "gameover";
@@ -49,7 +49,7 @@ const BUFF_RADIUS = 11;
 const BUFF_MAGNET_RADIUS = 220;
 const BUFF_MAGNET_SPEED = 240;
 const WAVE_MS = 4000;
-const BUFF_DROP_CHANCE = 0.05;
+const BUFF_DROP_CHANCE = 0.07;
 const BLADES_DROP_COOLDOWN_SECONDS = 15;
 const MAX_SHIELD_CHARGES = 3;
 const MAX_HASTE_SECONDS = 8;
@@ -74,18 +74,20 @@ function randomSpawnPoint(width: number, height: number) {
 }
 
 function randomBuffType(): BuffType {
-  const v = Math.floor(Math.random() * 4);
-  if (v === 0) return "haste";
-  if (v === 1) return "rapid";
-  if (v === 2) return "shield";
-  return "blades";
+  const roll = Math.random();
+  if (roll < 0.3) return "haste";
+  if (roll < 0.58) return "rapid";
+  if (roll < 0.8) return "shield";
+  if (roll < 0.96) return "blades";
+  return "wipe";
 }
 
 function randomNonBladeBuffType(): BuffType {
-  const v = Math.floor(Math.random() * 3);
-  if (v === 0) return "haste";
-  if (v === 1) return "rapid";
-  return "shield";
+  const roll = Math.random();
+  if (roll < 0.38) return "haste";
+  if (roll < 0.72) return "rapid";
+  if (roll < 0.95) return "shield";
+  return "wipe";
 }
 
 function xpForNextLevel(level: number) {
@@ -615,6 +617,16 @@ export default function HomePage() {
             }
             if (buff.type === "blades") {
               bladesRef.current = Math.min(MAX_BLADES_SECONDS, bladesRef.current + 2);
+            }
+            if (buff.type === "wipe") {
+              const wiped = enemiesRef.current.length;
+              if (wiped > 0) {
+                killRef.current += wiped;
+                setKills(killRef.current);
+                gainXp(wiped * (8 + currentWave));
+                enemiesRef.current = [];
+                setEnemiesView([]);
+              }
             }
             buffsRef.current = buffsRef.current.filter((v) => v.id !== buff.id);
             syncBuffView();

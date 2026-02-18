@@ -306,6 +306,13 @@ h1 {
   box-shadow: 0 0 0 2px #111 inset, 0 0 20px rgba(255, 255, 255, 0.8);
 }
 
+.buff.wipe {
+  background:
+    radial-gradient(circle at 50% 50%, #ffffff 0 28%, #000 29% 58%, #ffffff 59% 100%);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #000 inset, 0 0 24px rgba(255, 255, 255, 0.95);
+}
+
 .buff::after {
   content: attr(data-buff);
   position: absolute;
